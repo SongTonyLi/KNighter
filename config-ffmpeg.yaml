@@ -1,0 +1,7 @@
+result_dir: "/home/cc/ai2sec/KNighter/results/ffmpeg"
+LLVM_dir: "/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8"
+checker_nums: 5
+target_type: "ffmpeg"
+ffmpeg_dir: "/home/cc/ai2sec/KNighter/ffmpeg"
+key_file: "llm_keys.yaml"
+model: "gpt-5.4"

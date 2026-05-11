@@ -426,6 +426,10 @@ extern "C" const char clang_analyzerAPIVersionString[] =
             return self._validate_checker_v8(
                 checker_code, commit_id, patch, target, skip_build_checker
             )
+        elif target._target_type == "ffmpeg":
+            return self._validate_checker_ffmpeg(
+                checker_code, commit_id, patch, target, skip_build_checker
+            )
         else:
             raise NotImplementedError(
                 f"Validation for target type {target._target_type} is not implemented."
@@ -482,12 +486,187 @@ extern "C" const char clang_analyzerAPIVersionString[] =
                 skip_checkout=skip_checkout,
                 **kwargs,
             )
+        elif target._target_type == "ffmpeg":
+            return self._run_checker_ffmpeg(
+                checker_code,
+                commit_id,
+                target,
+                object_to_analyze=object_to_analyze,
+                jobs=jobs,
+                output_dir=output_dir,
+                skip_build_checker=skip_build_checker,
+                skip_checkout=skip_checkout,
+                **kwargs,
+            )
         else:
             raise NotImplementedError(
                 f"Running checker for target type {target._target_type} is not implemented."
             )
 
     """Self defined functions"""
+
+    def _validate_checker_ffmpeg(
+        self,
+        checker_code: str,
+        commit_id: str,
+        patch: str,
+        target,
+        skip_build_checker=False,
+    ) -> Tuple[int, int]:
+        """
+        Validate the checker against a FFmpeg commit.
+
+        Strategy: configure FFmpeg at the buggy commit, then use scan-build to
+        compile just the affected .o files.  Repeat for the fixed commit and
+        compare bug counts to derive TP / TN.
+        """
+        from targets.ffmpeg import FFmpeg
+
+        TP, TN = 0, 0
+
+        if not skip_build_checker:
+            self.build_checker(checker_code, Path("tmp"), attempt=1)
+
+        comd_prefix = self._generate_command()
+
+        objects = target.get_objects_from_patch(patch)
+        if not objects:
+            logger.warning("No analyzable objects found in patch — skipping validation")
+            return 0, 0
+
+        # ---- buggy version ----
+        target.checkout_commit(commit_id, is_before=True)
+        num_bug_obj: dict = {}
+        for obj in objects:
+            comd = comd_prefix + f"make {obj} -j8"
+            logger.info("Running (buggy): " + comd)
+            try:
+                res = sp.run(
+                    comd,
+                    shell=True,
+                    text=True,
+                    cwd=target.repo.working_dir,
+                    capture_output=True,
+                    timeout=300,
+                )
+                output = res.stdout + res.stderr
+            except sp.TimeoutExpired:
+                raise Exception(f"Compilation Timeout: {comd}")
+
+            if res.returncode == 0 and "No bugs found" not in output:
+                num_bugs = self.get_num_bugs(output)
+                num_bug_obj[obj] = num_bugs
+                if num_bugs > 0:
+                    TP += 1
+                    logger.info(f"Buggy: {num_bugs} bugs found in {obj}")
+                else:
+                    logger.info(f"Buggy: No bugs found in {obj}")
+            elif res.returncode != 0:
+                logger.warning(f"Buggy: build error for {obj}")
+                return -1, -1
+
+        # ---- fixed version ----
+        target.checkout_commit(commit_id, is_before=False)
+        for obj in objects:
+            comd = comd_prefix + f"make {obj} -j8"
+            logger.info("Running (fixed): " + comd)
+            try:
+                res = sp.run(
+                    comd,
+                    shell=True,
+                    text=True,
+                    cwd=target.repo.working_dir,
+                    capture_output=True,
+                    timeout=300,
+                )
+                output = res.stdout + res.stderr
+            except sp.TimeoutExpired:
+                raise Exception(f"Compilation Timeout: {comd}")
+
+            if res.returncode == 0 and "No bugs found" in output:
+                TN += 1
+                logger.info(f"Fixed: No bugs found in {obj}")
+            elif res.returncode == 0:
+                num_bugs = self.get_num_bugs(output)
+                if num_bugs < num_bug_obj.get(obj, 0) and num_bugs < 5:
+                    TN += 1
+                logger.info(f"Fixed: {num_bugs} bugs found in {obj}")
+            elif res.returncode != 0:
+                logger.warning(f"Fixed: build error for {obj}")
+                return -1, -1
+
+        return TP, TN
+
+    def _run_checker_ffmpeg(
+        self,
+        checker_code: str,
+        commit_id: str,
+        target,
+        object_to_analyze: str = None,
+        jobs: int = 32,
+        output_dir: str = "tmp",
+        skip_build_checker: bool = False,
+        skip_checkout: bool = False,
+        **kwargs,
+    ) -> int:
+        """
+        Run the checker against a FFmpeg commit.
+
+        Uses scan-build to intercept FFmpeg's Make-based compilation.
+        If object_to_analyze is given, only that .o file is built+scanned;
+        otherwise the group_scan_targets directories are scanned.
+        """
+        output_dir = Path(output_dir)
+        timeout = kwargs.get("timeout", 1800)
+
+        if not skip_build_checker:
+            build_res, _ = self.build_checker(checker_code, Path("tmp"), attempt=1)
+            if build_res != 0:
+                logger.error("Build failed, skipping analysis.")
+                raise Exception("Build failed, skipping analysis.")
+
+        comd_prefix = self._generate_command(no_output=True)
+        comd_prefix += "-o " + output_dir.absolute().as_posix() + " "
+
+        if not skip_checkout:
+            target.checkout_commit(commit_id)
+
+        if object_to_analyze:
+            comd = comd_prefix + f"make {object_to_analyze} -j{jobs}"
+        else:
+            comd = comd_prefix + f"make -j{jobs}"
+
+        logger.info("Running: " + comd)
+
+        scan_process = sp.Popen(
+            comd,
+            shell=True,
+            cwd=target.repo.working_dir,
+            stdout=sp.PIPE,
+            stderr=sp.PIPE,
+        )
+        output, completed = monitor_build_output(
+            scan_process, warning_limit=300, timeout=timeout
+        )
+
+        num_bugs = 0
+        if completed == "Complete":
+            return_code = scan_process.wait()
+            if return_code != 0:
+                logger.error("Failed to build FFmpeg with checker!")
+                (output_dir / "scan_error.log").write_text(output)
+                return -999
+            if "No bugs found" not in output:
+                num_bugs = self.get_num_bugs(output)
+                logger.success(f"{num_bugs} bugs found!")
+        elif completed == "Timeout":
+            num_bugs = -1
+            logger.warning("Timeout!")
+        else:
+            num_bugs = -10
+            logger.warning("Too many bugs found!")
+
+        return num_bugs
 
     def _validate_checker_linux(
         self,

@@ -8,6 +8,7 @@ import yaml
 from backends.csa import ClangBackend
 from backends.factory import AnalysisBackendFactory
 from targets.factory import TargetFactory
+from targets.ffmpeg import FFmpeg
 from targets.linux import Linux
 from targets.v8 import V8
 
@@ -51,9 +52,13 @@ class GlobalConfig:
             self._config["v8"] = V8(self.get("v8_dir"))
         if "linux_dir" in self._config:
             self._config["linux"] = Linux(self.get("linux_dir"))
+        if "ffmpeg_dir" in self._config:
+            self._config["ffmpeg"] = FFmpeg(self.get("ffmpeg_dir"))
 
         if target_type == "v8":
             self._config["target"] = self._config["v8"]
+        elif target_type == "ffmpeg":
+            self._config["target"] = self._config["ffmpeg"]
         else:
             self._config["target"] = self._config["linux"]
         self._config["backend"] = ClangBackend(self.get("LLVM_dir"))

@@ -1,0 +1,23 @@
+result_dir: "/home/cc/ai2sec/KNighter/results/ffmpeg-refined"
+LLVM_dir: "/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8"
+target_type: "ffmpeg"
+ffmpeg_dir: "/home/cc/ai2sec/KNighter/ffmpeg"
+key_file: "llm_keys.yaml"
+model: "gpt-5.4"
+
+# Scanning parameters (refine scans against a live FFmpeg commit to detect FPs)
+scan_commit: "HEAD"
+scan_timeout: 600
+group_scan_timeout: 3600
+group_scan_targets:
+  - "libavcodec/"
+  - "libavformat/"
+  - "libavutil/"
+  - "libswscale/"
+  - "libswresample/"
+group_scan_jobs: 32
+jobs: 32
+
+# FP refinement limits
+max_fp_reports_for_refinement: 5
+max_fp_reports_for_batch: 5

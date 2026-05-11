@@ -16,6 +16,18 @@ UTILITY_FUNCTION = (prompt_template_dir / "knowledge" / "utility.md").read_text(
 SUGGESTIONS = (prompt_template_dir / "knowledge" / "suggestions.md").read_text()
 TEMPLATE = (prompt_template_dir / "knowledge" / "template.md").read_text()
 
+FFMPEG_UTILITY = (prompt_template_dir / "knowledge" / "ffmpeg_utility.md").read_text()
+FFMPEG_SUGGESTIONS = (prompt_template_dir / "knowledge" / "ffmpeg_suggestions.md").read_text()
+
+def _target_extra_knowledge() -> tuple[str, str]:
+    """Return (extra_utility, extra_suggestions) for the active target."""
+    try:
+        target_type = global_config.target._target_type if global_config.target else "linux"
+    except Exception:
+        target_type = "linux"
+    if target_type == "ffmpeg":
+        return FFMPEG_UTILITY, FFMPEG_SUGGESTIONS
+    return "", ""
 
 class Example(BaseModel):
     patch: str
@@ -284,6 +296,13 @@ def pattern2plan(
         "{{failed_plan_examples}}", feedback_plan_text
     )
 
+    # Inject target-specific extra knowledge for non-Linux targets
+    extra_utility, extra_suggestions = _target_extra_knowledge()
+    if extra_utility:
+        pattern2plan_prompt += f"\n\n# Target-Specific API Reference\n\n{extra_utility}"
+    if extra_suggestions:
+        pattern2plan_prompt += f"\n\n# Target-Specific Checker Tips\n\n{extra_suggestions}"
+
     prompt_history_dir = (
         Path(global_config.result_dir) / id / "prompt_history" / str(iter)
     )
@@ -336,6 +355,13 @@ def plan2checker(
         .replace("{{input_patch}}", patch)
         .replace("{{examples}}", example_text)
     )
+
+    # Inject target-specific extra knowledge for non-Linux targets
+    extra_utility, extra_suggestions = _target_extra_knowledge()
+    if extra_utility:
+        plan2checker_prompt += f"\n\n# Target-Specific API Reference\n\n{extra_utility}"
+    if extra_suggestions:
+        plan2checker_prompt += f"\n\n# Target-Specific Checker Tips\n\n{extra_suggestions}"
 
     prompt_history_dir = (
         Path(global_config.result_dir) / id / "prompt_history" / str(iter)
