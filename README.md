@@ -106,10 +106,13 @@ wget https://github.com/llvm/llvm-project/archive/refs/tags/llvmorg-18.1.8.zip
 unzip llvmorg-18.1.8.zip
 ```
 
-Git clone the Linux kernel source code:
+Git clone the Linux ffmpeg source code:
 
 ```sh
-git clone https://github.com/torvalds/linux.git
+git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg
+cd ffmpeg
+git checkout -b main
+cd -
 ```
 
 Install Python dependencies:
@@ -169,16 +172,16 @@ python3 scripts/setup_llvm.py LLVM_PATH
 For rapid evaluation, use the debug dataset:
 
 ```bash
-cd /app/src
+cd src
 
 # Step 1: Generate checkers for debug commits
-python3 main.py gen --config_file /app/config-generate.yaml --commit_file=/app/commits/commits-debug.txt
+python3 main.py gen --config_file ../config-ffmpeg.yaml --commit_file=../commits/ffmpeg_commits.txt
 
 # Step 2: Refine generated checkers
-python3 main.py refine --config_file /app/config-refine-debug.yaml /app/result-generate
+python3 main.py refine --config_file ../config-ffmpeg-refine.yaml ../results/ffmpeg
 
 # Step 3: Triage and analyze results
-python3 main.py triage --config_file /app/config-triage-debug.yaml /app/result-refine-debug
+python3 main.py triage --config_file ../config-ffmpeg-triage.yaml ../results/ffmpeg-refined
 ```
 
 <details>
