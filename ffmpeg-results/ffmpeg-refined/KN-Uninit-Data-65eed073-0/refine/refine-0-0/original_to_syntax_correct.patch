@@ -1,0 +1,303 @@
+--- original_code.cpp+++ syntax_correct_refine_code.cpp@@ -23,11 +23,16 @@ using namespace taint;
+ 
+ REGISTER_MAP_WITH_PROGRAMSTATE(ShortReadDstMap, const MemRegion *, const CallExpr *)
++REGISTER_MAP_WITH_PROGRAMSTATE(AvioReadRetVarMap, const VarDecl *, const MemRegion *)
++REGISTER_SET_WITH_PROGRAMSTATE(CheckedRetVars, const VarDecl *)
++REGISTER_SET_WITH_PROGRAMSTATE(StreamHandledRegions, const MemRegion *)
+ 
+ namespace {
+ 
+ class SAGenTestChecker
+     : public Checker<check::PostCall,
++                     check::PostStmt<DeclStmt>,
++                     check::PreStmt<BinaryOperator>,
+                      check::BranchCondition,
+                      check::PreCall,
+                      check::Location> {
+@@ -38,6 +43,8 @@       : BT(new BugType(this, "Unchecked avio_read result", "API")) {}
+ 
+   void checkPostCall(const CallEvent &Call, CheckerContext &C) const;
++  void checkPostStmt(const DeclStmt *DS, CheckerContext &C) const;
++  void checkPreStmt(const BinaryOperator *BO, CheckerContext &C) const;
+   void checkBranchCondition(const Stmt *Condition, CheckerContext &C) const;
+   void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
+   void checkLocation(SVal Loc, bool IsLoad, const Stmt *S,
+@@ -52,8 +59,23 @@                                                 CheckerContext &C) const;
+   const MemRegion *getTrackedBaseRegionFromAvioReadCall(const CallExpr *CE,
+                                                         CheckerContext &C) const;
++
++  const VarDecl *getVarDeclFromExpr(const Expr *E) const;
++  const CallExpr *getDirectAvioReadCall(const Expr *E,
++                                        CheckerContext &C) const;
+   const CallExpr *getAvioReadCallFromRetVar(const Expr *CondE,
+                                             CheckerContext &C) const;
++
++  bool isExprRefToVar(const Expr *E, const VarDecl *VD) const;
++  bool isAccumulationWithVar(const BinaryOperator *BO, const VarDecl *VD) const;
++  bool isHandledStreamingRegion(const MemRegion *MR, ProgramStateRef State) const;
++  bool isFalsePositive(const MemRegion *MR, const Stmt *S,
++                       CheckerContext &C) const;
++
++  void markRetVarForCallResult(const VarDecl *VD, const MemRegion *MR,
++                               CheckerContext &C) const;
++  void markCheckedRetVar(const VarDecl *VD, CheckerContext &C) const;
++  void markStreamHandledRegion(const MemRegion *MR, CheckerContext &C) const;
+ 
+   void clearTrackedRegion(const MemRegion *MR, CheckerContext &C) const;
+   void reportBug(const MemRegion *MR, const Stmt *S, CheckerContext &C,
+@@ -114,6 +136,42 @@   return getTrackedBaseRegionFromExpr(CE->getArg(1), C);
+ }
+ 
++const VarDecl *SAGenTestChecker::getVarDeclFromExpr(const Expr *E) const {
++  if (!E)
++    return nullptr;
++
++  E = E->IgnoreParenImpCasts();
++  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
++    return dyn_cast<VarDecl>(DRE->getDecl());
++
++  return nullptr;
++}
++
++const CallExpr *SAGenTestChecker::getDirectAvioReadCall(const Expr *E,
++                                                        CheckerContext &C) const {
++  if (!E)
++    return nullptr;
++
++  E = E->IgnoreParenImpCasts();
++  if (const auto *CE = dyn_cast<CallExpr>(E)) {
++    if (isAvioReadCall(CE, C))
++      return CE;
++  }
++
++  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
++    if (BO->isAssignmentOp()) {
++      const Expr *RHS = BO->getRHS();
++      RHS = RHS ? RHS->IgnoreParenImpCasts() : nullptr;
++      if (const auto *CE = dyn_cast_or_null<CallExpr>(RHS)) {
++        if (isAvioReadCall(CE, C))
++          return CE;
++      }
++    }
++  }
++
++  return nullptr;
++}
++
+ const CallExpr *
+ SAGenTestChecker::getAvioReadCallFromRetVar(const Expr *CondE,
+                                             CheckerContext &C) const {
+@@ -142,6 +200,97 @@   return nullptr;
+ }
+ 
++bool SAGenTestChecker::isExprRefToVar(const Expr *E, const VarDecl *VD) const {
++  if (!E || !VD)
++    return false;
++
++  E = E->IgnoreParenImpCasts();
++  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
++    return DRE->getDecl() == VD;
++
++  return false;
++}
++
++bool SAGenTestChecker::isAccumulationWithVar(const BinaryOperator *BO,
++                                             const VarDecl *VD) const {
++  if (!BO || !VD)
++    return false;
++
++  if (BO->getOpcode() == BO_AddAssign)
++    return isExprRefToVar(BO->getRHS(), VD);
++
++  if (!BO->isAssignmentOp())
++    return false;
++
++  const Expr *RHS = BO->getRHS();
++  if (!RHS)
++    return false;
++
++  RHS = RHS->IgnoreParenImpCasts();
++  if (const auto *InnerBO = dyn_cast<BinaryOperator>(RHS)) {
++    if (InnerBO->getOpcode() == BO_Add) {
++      return isExprRefToVar(InnerBO->getLHS(), VD) ||
++             isExprRefToVar(InnerBO->getRHS(), VD);
++    }
++  }
++
++  return false;
++}
++
++bool SAGenTestChecker::isHandledStreamingRegion(const MemRegion *MR,
++                                                ProgramStateRef State) const {
++  if (!MR || !State)
++    return false;
++  return State->contains<StreamHandledRegions>(MR->getBaseRegion());
++}
++
++bool SAGenTestChecker::isFalsePositive(const MemRegion *MR, const Stmt *S,
++                                       CheckerContext &C) const {
++  ProgramStateRef State = C.getState();
++  if (!MR || !State)
++    return false;
++
++  MR = MR->getBaseRegion();
++  if (!MR)
++    return false;
++
++  if (isHandledStreamingRegion(MR, State))
++    return true;
++
++  return false;
++}
++
++void SAGenTestChecker::markRetVarForCallResult(const VarDecl *VD,
++                                               const MemRegion *MR,
++                                               CheckerContext &C) const {
++  if (!VD || !MR)
++    return;
++
++  ProgramStateRef State = C.getState();
++  State = State->set<AvioReadRetVarMap>(VD, MR->getBaseRegion());
++  C.addTransition(State);
++}
++
++void SAGenTestChecker::markCheckedRetVar(const VarDecl *VD,
++                                         CheckerContext &C) const {
++  if (!VD)
++    return;
++
++  ProgramStateRef State = C.getState();
++  State = State->add<CheckedRetVars>(VD);
++  C.addTransition(State);
++}
++
++void SAGenTestChecker::markStreamHandledRegion(const MemRegion *MR,
++                                               CheckerContext &C) const {
++  if (!MR)
++    return;
++
++  ProgramStateRef State = C.getState();
++  State = State->add<StreamHandledRegions>(MR->getBaseRegion());
++  C.addTransition(State);
++}
++
+ void SAGenTestChecker::clearTrackedRegion(const MemRegion *MR,
+                                           CheckerContext &C) const {
+   if (!MR)
+@@ -193,12 +342,71 @@   if (!DstMR)
+     return;
+ 
+-  llvm::APSInt RequestedSize;
+-  (void)EvaluateExprToInt(RequestedSize, CE->getArg(2), C);
+-
+   ProgramStateRef State = C.getState();
+   State = State->set<ShortReadDstMap>(DstMR, CE);
+   C.addTransition(State);
++}
++
++void SAGenTestChecker::checkPostStmt(const DeclStmt *DS,
++                                     CheckerContext &C) const {
++  if (!DS)
++    return;
++
++  for (const Decl *D : DS->decls()) {
++    const auto *VD = dyn_cast<VarDecl>(D);
++    if (!VD || !VD->hasInit())
++      continue;
++
++    const Expr *Init = VD->getInit();
++    const CallExpr *CE = getDirectAvioReadCall(Init, C);
++    if (!CE)
++      continue;
++
++    const MemRegion *DstMR = getTrackedBaseRegionFromAvioReadCall(CE, C);
++    if (!DstMR)
++      continue;
++
++    markRetVarForCallResult(VD, DstMR, C);
++  }
++}
++
++void SAGenTestChecker::checkPreStmt(const BinaryOperator *BO,
++                                    CheckerContext &C) const {
++  if (!BO)
++    return;
++
++  ProgramStateRef State = C.getState();
++
++  if (BO->isAssignmentOp()) {
++    const VarDecl *LHSVD = getVarDeclFromExpr(BO->getLHS());
++    const Expr *RHS = BO->getRHS();
++    if (LHSVD && RHS) {
++      const CallExpr *CE = getDirectAvioReadCall(RHS, C);
++      if (CE) {
++        const MemRegion *DstMR = getTrackedBaseRegionFromAvioReadCall(CE, C);
++        if (DstMR)
++          markRetVarForCallResult(LHSVD, DstMR, C);
++        return;
++      }
++    }
++  }
++
++  for (auto I = State->get<AvioReadRetVarMap>().begin(),
++            E = State->get<AvioReadRetVarMap>().end();
++       I != E; ++I) {
++    const VarDecl *RetVD = I->first;
++    const MemRegion *DstMR = I->second;
++    if (!RetVD || !DstMR)
++      continue;
++
++    if (!State->contains<CheckedRetVars>(RetVD))
++      continue;
++
++    if (isAccumulationWithVar(BO, RetVD)) {
++      markStreamHandledRegion(DstMR, C);
++      return;
++    }
++  }
+ }
+ 
+ void SAGenTestChecker::checkBranchCondition(const Stmt *Condition,
+@@ -218,6 +426,16 @@   if (!CondE)
+     return;
+ 
++  ProgramStateRef State = C.getState();
++
++  const DeclRefExpr *DRE = findSpecificTypeInChildren<DeclRefExpr>(CondE);
++  if (DRE) {
++    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
++      if (State->get<AvioReadRetVarMap>(VD))
++        markCheckedRetVar(VD, C);
++    }
++  }
++
+   const CallExpr *TrackedCall = getAvioReadCallFromRetVar(CondE, C);
+   if (!TrackedCall)
+     return;
+@@ -252,6 +470,9 @@     if (!TrackedBy)
+       continue;
+ 
++    if (isFalsePositive(MR, Call.getOriginExpr(), C))
++      continue;
++
+     reportBug(MR, Call.getOriginExpr(),
+               C, "buffer read by avio_read may be partially uninitialized");
+     return;
+@@ -272,6 +493,9 @@ 
+   const CallExpr *const *TrackedBy = State->get<ShortReadDstMap>(MR);
+   if (!TrackedBy)
++    return;
++
++  if (isFalsePositive(MR, S, C))
+     return;
+ 
+   if (IsLoad) {
+@@ -289,6 +513,9 @@       return;
+ 
+     if (State->get<ShortReadDstMap>(BaseMR)) {
++      if (isFalsePositive(BaseMR, S, C))
++        return;
++
+       reportBug(BaseMR, S, C,
+                 "buffer read by avio_read may be partially uninitialized");
+       return;

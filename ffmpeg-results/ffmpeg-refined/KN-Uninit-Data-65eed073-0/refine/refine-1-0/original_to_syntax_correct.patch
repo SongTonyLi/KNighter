@@ -1,0 +1,319 @@
+--- original_code.cpp+++ syntax_correct_refine_code.cpp@@ -23,6 +23,7 @@ using namespace taint;
+ 
+ REGISTER_MAP_WITH_PROGRAMSTATE(ShortReadDstMap, const MemRegion *, const CallExpr *)
++REGISTER_MAP_WITH_PROGRAMSTATE(ShortReadRetVarMap, const MemRegion *, const MemRegion *)
+ 
+ namespace {
+ 
+@@ -30,7 +31,8 @@     : public Checker<check::PostCall,
+                      check::BranchCondition,
+                      check::PreCall,
+-                     check::Location> {
++                     check::Location,
++                     check::Bind> {
+   mutable std::unique_ptr<BugType> BT;
+ 
+ public:
+@@ -42,6 +44,7 @@   void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
+   void checkLocation(SVal Loc, bool IsLoad, const Stmt *S,
+                      CheckerContext &C) const;
++  void checkBind(SVal Loc, SVal Val, const Stmt *S, CheckerContext &C) const;
+ 
+ private:
+   bool isAvioReadCall(const CallExpr *CE, CheckerContext &C) const;
+@@ -54,14 +57,25 @@                                                     CheckerContext &C) const;
+   const CallExpr *getAvioReadCallFromRetVar(const Expr *CondE,
+                                             CheckerContext &C) const;
++  const VarDecl *getAssignedVarFromStmt(const Stmt *S) const;
++  const VarDecl *getRetVarForTrackedAvioRead(const CallExpr *CE,
++                                             CheckerContext &C) const;
++  const MemRegion *getRetVarRegionFromAvioReadCall(const CallExpr *CE,
++                                                   CheckerContext &C) const;
+ 
+   bool isSubRegionOf(const MemRegion *Inner, const MemRegion *Outer) const;
+   bool regionsOverlapOrSubregion(const MemRegion *A, const MemRegion *B) const;
+   bool isTrackedUse(const MemRegion *UseMR, const MemRegion *TrackedMR) const;
++
++  bool callUsesTrackedBufferWithTrackedSize(const CallEvent &Call,
++                                            const MemRegion *TrackedDstMR,
++                                            CheckerContext &C) const;
++
+   bool isFalsePositive(const MemRegion *UseMR, const MemRegion *TrackedMR,
+                        const Stmt *S, CheckerContext &C) const;
+ 
+   void clearTrackedRegion(const MemRegion *MR, CheckerContext &C) const;
++  void clearTrackedRegionAndRetVar(const MemRegion *MR, CheckerContext &C) const;
+   void reportBug(const MemRegion *MR, const Stmt *S, CheckerContext &C,
+                  StringRef Msg) const;
+ };
+@@ -114,6 +128,71 @@     return nullptr;
+ 
+   return getTrackedRegionFromExpr(CE->getArg(1), C);
++}
++
++const VarDecl *SAGenTestChecker::getAssignedVarFromStmt(const Stmt *S) const {
++  if (!S)
++    return nullptr;
++
++  if (const auto *DS = dyn_cast<DeclStmt>(S)) {
++    for (const Decl *D : DS->decls()) {
++      if (const auto *VD = dyn_cast<VarDecl>(D)) {
++        if (VD->hasInit())
++          return VD;
++      }
++    }
++  }
++
++  if (const auto *BO = dyn_cast<BinaryOperator>(S)) {
++    if (!BO->isAssignmentOp())
++      return nullptr;
++    if (const auto *DRE =
++            dyn_cast<DeclRefExpr>(BO->getLHS()->IgnoreParenImpCasts())) {
++      return dyn_cast<VarDecl>(DRE->getDecl());
++    }
++  }
++
++  return nullptr;
++}
++
++const VarDecl *
++SAGenTestChecker::getRetVarForTrackedAvioRead(const CallExpr *CE,
++                                              CheckerContext &C) const {
++  if (!CE)
++    return nullptr;
++
++  const Stmt *ParentDS = findSpecificTypeInParents<DeclStmt>(CE, C);
++  if (const VarDecl *VD = getAssignedVarFromStmt(ParentDS)) {
++    if (VD->hasInit()) {
++      const Expr *Init = VD->getInit();
++      if (Init && Init->IgnoreParenImpCasts() == CE)
++        return VD;
++    }
++  }
++
++  const Stmt *ParentBO = findSpecificTypeInParents<BinaryOperator>(CE, C);
++  if (const auto *BO = dyn_cast_or_null<BinaryOperator>(ParentBO)) {
++    if (BO->isAssignmentOp() &&
++        BO->getRHS()->IgnoreParenImpCasts() == CE) {
++      if (const auto *DRE =
++              dyn_cast<DeclRefExpr>(BO->getLHS()->IgnoreParenImpCasts())) {
++        return dyn_cast<VarDecl>(DRE->getDecl());
++      }
++    }
++  }
++
++  return nullptr;
++}
++
++const MemRegion *
++SAGenTestChecker::getRetVarRegionFromAvioReadCall(const CallExpr *CE,
++                                                  CheckerContext &C) const {
++  const VarDecl *VD = getRetVarForTrackedAvioRead(CE, C);
++  if (!VD)
++    return nullptr;
++
++  return C.getSValBuilder().getRegionManager().getVarRegion(
++      VD, C.getLocationContext());
+ }
+ 
+ const CallExpr *
+@@ -177,6 +256,43 @@   return regionsOverlapOrSubregion(UseMR, TrackedMR);
+ }
+ 
++bool SAGenTestChecker::callUsesTrackedBufferWithTrackedSize(
++    const CallEvent &Call, const MemRegion *TrackedDstMR,
++    CheckerContext &C) const {
++  if (!TrackedDstMR)
++    return false;
++
++  ProgramStateRef State = C.getState();
++  const MemRegion *const *RetVarMRPtr =
++      State->get<ShortReadRetVarMap>(TrackedDstMR);
++  if (!RetVarMRPtr)
++    return false;
++  const MemRegion *RetVarMR = *RetVarMRPtr;
++  if (!RetVarMR)
++    return false;
++
++  bool HasTrackedBufArg = false;
++  bool HasTrackedSizeArg = false;
++
++  for (unsigned I = 0, E = Call.getNumArgs(); I != E; ++I) {
++    const Expr *ArgE = Call.getArgExpr(I);
++    if (!ArgE)
++      continue;
++
++    const MemRegion *ArgMR = getTrackedRegionFromExpr(ArgE, C);
++    if (!ArgMR)
++      continue;
++
++    if (regionsOverlapOrSubregion(ArgMR, TrackedDstMR))
++      HasTrackedBufArg = true;
++
++    if (regionsOverlapOrSubregion(ArgMR, RetVarMR))
++      HasTrackedSizeArg = true;
++  }
++
++  return HasTrackedBufArg && HasTrackedSizeArg;
++}
++
+ bool SAGenTestChecker::isFalsePositive(const MemRegion *UseMR,
+                                        const MemRegion *TrackedMR,
+                                        const Stmt *S,
+@@ -184,8 +300,6 @@   if (!UseMR || !TrackedMR || !S)
+     return true;
+ 
+-  // The key false-positive pattern: same aggregate base, but different sibling
+-  // fields/subregions (e.g. ape->md5 tracked, but ape->frames[i].size used).
+   if (!regionsOverlapOrSubregion(UseMR, TrackedMR))
+     return true;
+ 
+@@ -198,11 +312,42 @@     return;
+ 
+   ProgramStateRef State = C.getState();
+-  if (!State->get<ShortReadDstMap>(MR))
+-    return;
+-
+-  State = State->remove<ShortReadDstMap>(MR);
+-  C.addTransition(State);
++  bool Changed = false;
++
++  if (State->get<ShortReadDstMap>(MR)) {
++    State = State->remove<ShortReadDstMap>(MR);
++    Changed = true;
++  }
++
++  if (State->get<ShortReadRetVarMap>(MR)) {
++    State = State->remove<ShortReadRetVarMap>(MR);
++    Changed = true;
++  }
++
++  if (Changed)
++    C.addTransition(State);
++}
++
++void SAGenTestChecker::clearTrackedRegionAndRetVar(const MemRegion *MR,
++                                                   CheckerContext &C) const {
++  if (!MR)
++    return;
++
++  ProgramStateRef State = C.getState();
++  bool Changed = false;
++
++  if (State->get<ShortReadDstMap>(MR)) {
++    State = State->remove<ShortReadDstMap>(MR);
++    Changed = true;
++  }
++
++  if (State->get<ShortReadRetVarMap>(MR)) {
++    State = State->remove<ShortReadRetVarMap>(MR);
++    Changed = true;
++  }
++
++  if (Changed)
++    C.addTransition(State);
+ }
+ 
+ void SAGenTestChecker::reportBug(const MemRegion *MR, const Stmt *S,
+@@ -239,11 +384,12 @@   if (!DstMR)
+     return;
+ 
+-  llvm::APSInt RequestedSize;
+-  (void)EvaluateExprToInt(RequestedSize, CE->getArg(2), C);
+-
+   ProgramStateRef State = C.getState();
+   State = State->set<ShortReadDstMap>(DstMR, CE);
++
++  if (const MemRegion *RetVarMR = getRetVarRegionFromAvioReadCall(CE, C))
++    State = State->set<ShortReadRetVarMap>(DstMR, RetVarMR);
++
+   C.addTransition(State);
+ }
+ 
+@@ -256,7 +402,7 @@   if (DirectCall && isAvioReadCall(DirectCall, C)) {
+     const MemRegion *DstMR = getTrackedRegionFromAvioReadCall(DirectCall, C);
+     if (DstMR)
+-      clearTrackedRegion(DstMR, C);
++      clearTrackedRegionAndRetVar(DstMR, C);
+     return;
+   }
+ 
+@@ -272,18 +418,31 @@   if (!DstMR)
+     return;
+ 
+-  clearTrackedRegion(DstMR, C);
++  clearTrackedRegionAndRetVar(DstMR, C);
+ }
+ 
+ void SAGenTestChecker::checkPreCall(const CallEvent &Call,
+                                     CheckerContext &C) const {
++  ProgramStateRef State = C.getState();
++
++  for (const auto &Entry : State->get<ShortReadDstMap>()) {
++    const MemRegion *TrackedMR = Entry.first;
++    if (!TrackedMR)
++      continue;
++
++    if (callUsesTrackedBufferWithTrackedSize(Call, TrackedMR, C)) {
++      clearTrackedRegionAndRetVar(TrackedMR, C);
++      return;
++    }
++  }
++
+   if (!isMemcmpCall(Call, C))
+     return;
+ 
+   if (Call.getNumArgs() < 2)
+     return;
+ 
+-  ProgramStateRef State = C.getState();
++  State = C.getState();
+ 
+   for (unsigned Idx = 0; Idx < 2; ++Idx) {
+     const Expr *ArgE = Call.getArgExpr(Idx);
+@@ -355,6 +514,46 @@   }
+ }
+ 
++void SAGenTestChecker::checkBind(SVal Loc, SVal Val, const Stmt *S,
++                                 CheckerContext &C) const {
++  if (!S)
++    return;
++
++  const auto *BO = dyn_cast<BinaryOperator>(S);
++  if (!BO || !BO->isAssignmentOp())
++    return;
++
++  const Expr *RHS = BO->getRHS();
++  if (!RHS)
++    return;
++
++  const CallExpr *CE = dyn_cast<CallExpr>(RHS->IgnoreParenImpCasts());
++  if (!CE || !isAvioReadCall(CE, C))
++    return;
++
++  const MemRegion *DstMR = getTrackedRegionFromAvioReadCall(CE, C);
++  if (!DstMR)
++    return;
++
++  const auto *DRE = dyn_cast<DeclRefExpr>(BO->getLHS()->IgnoreParenImpCasts());
++  if (!DRE)
++    return;
++
++  const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
++  if (!VD)
++    return;
++
++  const MemRegion *RetVarMR =
++      C.getSValBuilder().getRegionManager().getVarRegion(
++          VD, C.getLocationContext());
++  if (!RetVarMR)
++    return;
++
++  ProgramStateRef State = C.getState();
++  State = State->set<ShortReadRetVarMap>(DstMR, RetVarMR);
++  C.addTransition(State);
++}
++
+ } // end anonymous namespace
+ 
+ extern "C" void clang_registerCheckers(CheckerRegistry &registry) {

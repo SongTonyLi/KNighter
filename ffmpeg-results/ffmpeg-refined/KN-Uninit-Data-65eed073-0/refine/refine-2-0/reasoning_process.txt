@@ -1,0 +1,56 @@
+Refinment Plan:
+1. Root cause of the false positive
+   - The checker currently tracks every destination buffer passed to `avio_read()` and reports on any later load from that region unless the region was “cleared” by a branch condition involving the call.
+   - In the AV1/OBU case, the short-read result is actually handled correctly:
+     - `size = avio_read(...)` captures the actual byte count,
+     - parsing is bounded by `size` via `read_obu_with_size(header, size, ...)`,
+     - the required speculative overread padding is explicitly initialized with `memset(header + size, 0, AV_INPUT_BUFFER_PADDING_SIZE)`.
+   - The checker does not model either of these safety facts:
+     - that later use may be bounded by the actual return value of the read,
+     - that the unread tail/padding may be explicitly initialized before use.
+   - As a result, it reports on `get_bits1()` loads coming from a parser that only consumes the valid prefix plus initialized padding.
+
+2. Specific fixes
+   - Introduce richer state tracking with a record per tracked destination region:
+     - the `avio_read()` call,
+     - the symbolic/concrete value representing the actual bytes read,
+     - whether the region has subsequently been padded/initialized.
+   - Record the return value of `avio_read()` in `checkPostCall()` using `Call.getReturnValue()`.
+   - Add a second program-state map to remember variables initialized from `avio_read()` return values, so branch checks like `if (size < 0)` / `if (ret != len)` can still clear the tracked region when the return value is validated through a variable.
+   - Handle `memset(dst + size, 0, const_padding)` in `checkPreCall()` as an initialization barrier for the unread tail/padding of a tracked destination. This directly suppresses the OBU false positive.
+   - Add a targeted false-positive filter for parsing helpers that are passed both:
+     - the tracked buffer,
+     - and the `avio_read()` return value (or a variable initialized from it).
+     This captures the “consumer is explicitly bounded by the actual bytes read” pattern.
+   - Keep existing true-positive behavior for:
+     - unchecked `memcmp(version, ...)`,
+     - direct loads like `header[0]`,
+     - string/metadata use after unchecked read.
+
+3. Edge cases / regressions considered
+   - We do not globally suppress all later uses after a `memset`; suppression only happens when the call is specifically initializing a subregion derived from the tracked buffer.
+   - We do not assume any `memset` is enough; we only use it as a practical signal that the unread tail is intentionally initialized, which matches the FFmpeg bitreader idiom and eliminates this FP.
+   - We preserve bug detection for the target buggy code because:
+     - `dss_read_seek`: no bounded parser, no memset padding, later direct loads still warn.
+     - `check_file_header`: `memcmp(version, ...)` still warns.
+     - `dtshd_read_header`: later `value[chunk_size - 1] = 0` is not a bounded read check; the region remains tracked and warns on the use/store pattern as before.
+   - Compatibility:
+     - uses Clang Static Analyzer APIs available in Clang-18,
+     - avoids removing any existing includes,
+     - uses `REGISTER_MAP_WITH_PROGRAMSTATE(...)` as requested.
+
+4. Main implementation idea
+   - Add:
+     - `ShortReadDstMap : MemRegion* -> const CallExpr*`
+     - `ShortReadRetValMap : MemRegion* -> const MemRegion*` for return-value variable region
+     - `InitializedAfterReadMap : MemRegion* -> bool`
+   - Improve branch clearing using the remembered return variable region.
+   - In `checkPreCall()`, suppress reports for:
+     - bounded helper/parser calls using both tracked buffer and the read-size value,
+     - `memset` on the tracked buffer/tail,
+     - `memcmp` remains reportable.
+   - In `checkLocation()`, do not warn if the tracked region has been marked initialized-after-read.
+
+Refined Code:
+```cpp
+```

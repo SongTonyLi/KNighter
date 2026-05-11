@@ -1,0 +1,43 @@
+Refinment Plan:
+
+1. Root cause of the false positive  
+   The checker currently tracks only the base `MemRegion *` of the destination passed to `avio_read()`, and then reports on any later load from that base region in `checkLocation()`. This is too coarse.
+
+   In the false positive:
+   - `avio_read(pb, ape->md5, 16)` tracks the base region of `ape`
+   - later loads from unrelated fields like `ape->frames[i].size` also have the same base region (`ape`)
+   - the checker therefore incorrectly reports that those unrelated fields are “partially uninitialized”
+
+   So the bug is caused by region over-tainting: collapsing `ape->md5` to its enclosing base region `ape`.
+
+2. Specific fix  
+   Track the precise destination region of `avio_read()` instead of the enclosing base region. Then, only report if the later use refers to:
+   - the exact same region, or
+   - a subregion of the tracked destination region.
+
+   This preserves true positives such as:
+   - `avio_read(pb, version, 8); memcmp(version, ...)`
+   - `avio_read(pb, header, N); header[0]`
+   - `avio_read(pb, value, chunk_size); value[chunk_size - 1] = 0` (load/store involving the same buffer)
+
+   But it prevents unrelated fields in the same aggregate from being flagged.
+
+3. State-tracking improvements
+   - Keep using `REGISTER_MAP_WITH_PROGRAMSTATE(...)`
+   - Store the tracked destination region directly
+   - Add helper predicates:
+     - `regionsOverlapOrSubregion(...)`
+     - `isFalsePositive(...)`
+   - Clear tracked state when the `avio_read()` result is branch-checked, as before
+
+4. Edge cases / regressions considered
+   - Array buffers and pointer variables: use exact region returned by the analyzer, not just base region
+   - Element access after `avio_read()` (`header[0]`, `value[i]`): handled by subregion matching
+   - `memcmp(version, ...)`: handled because argument region matches tracked region
+   - Struct-field case (`ape->md5` vs `ape->frames`): no report now, because regions are distinct sibling subregions
+   - Direct branch checks like `if (avio_read(...) < 0)` and return-variable checks remain supported
+   - Compatibility with Clang-18: uses only stable SA APIs and avoids newer unsupported APIs
+
+Refined Code:
+```cpp
+```

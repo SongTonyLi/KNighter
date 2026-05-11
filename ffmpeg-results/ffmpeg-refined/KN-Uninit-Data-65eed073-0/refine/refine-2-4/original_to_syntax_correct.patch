@@ -1,0 +1,291 @@
+--- original_code.cpp+++ syntax_correct_refine_code.cpp@@ -23,6 +23,9 @@ using namespace taint;
+ 
+ REGISTER_MAP_WITH_PROGRAMSTATE(ShortReadDstMap, const MemRegion *, const CallExpr *)
++REGISTER_MAP_WITH_PROGRAMSTATE(ReadRetVarToDstMap, const VarDecl *, const MemRegion *)
++REGISTER_MAP_WITH_PROGRAMSTATE(DstToReadRetVarMap, const MemRegion *, const VarDecl *)
++REGISTER_MAP_WITH_PROGRAMSTATE(SafeDstMap, const MemRegion *, bool)
+ 
+ namespace {
+ 
+@@ -47,6 +50,8 @@   bool isAvioReadCall(const CallExpr *CE, CheckerContext &C) const;
+   bool isAvioReadCall(const CallEvent &Call, CheckerContext &C) const;
+   bool isMemcmpCall(const CallEvent &Call, CheckerContext &C) const;
++  bool isMemsetCall(const CallEvent &Call, CheckerContext &C) const;
++  bool isAvShrinkPacketCall(const CallEvent &Call, CheckerContext &C) const;
+ 
+   const MemRegion *getTrackedRegionFromExpr(const Expr *E,
+                                             CheckerContext &C) const;
+@@ -54,6 +59,9 @@                                                     CheckerContext &C) const;
+   const CallExpr *getAvioReadCallFromRetVar(const Expr *CondE,
+                                             CheckerContext &C) const;
++  const VarDecl *getAssignedVarFromStmt(const Stmt *S) const;
++  const VarDecl *getRetVarForAvioReadResult(const CallEvent &Call,
++                                            CheckerContext &C) const;
+ 
+   bool isSubRegionOf(const MemRegion *Inner, const MemRegion *Outer) const;
+   bool regionsOverlapOrSubregion(const MemRegion *A, const MemRegion *B) const;
+@@ -61,7 +69,19 @@   bool isFalsePositive(const MemRegion *UseMR, const MemRegion *TrackedMR,
+                        const Stmt *S, CheckerContext &C) const;
+ 
++  bool conditionMentionsTrackedRetVar(const Stmt *Condition,
++                                      const VarDecl *VD) const;
++  bool isSanitizingMemsetForTrackedDst(const CallEvent &Call,
++                                       const MemRegion *TrackedMR,
++                                       CheckerContext &C) const;
++  bool isSanitizingShrinkForTrackedDst(const CallEvent &Call,
++                                       const MemRegion *TrackedMR,
++                                       CheckerContext &C) const;
++  const MemRegion *findTrackedRegionForUse(const MemRegion *UseMR,
++                                           ProgramStateRef State) const;
++
+   void clearTrackedRegion(const MemRegion *MR, CheckerContext &C) const;
++  void markTrackedRegionSafe(const MemRegion *MR, CheckerContext &C) const;
+   void reportBug(const MemRegion *MR, const Stmt *S, CheckerContext &C,
+                  StringRef Msg) const;
+ };
+@@ -90,6 +110,22 @@   return ExprHasName(OriginExpr, "memcmp", C);
+ }
+ 
++bool SAGenTestChecker::isMemsetCall(const CallEvent &Call,
++                                    CheckerContext &C) const {
++  const Expr *OriginExpr = Call.getOriginExpr();
++  if (!OriginExpr)
++    return false;
++  return ExprHasName(OriginExpr, "memset", C);
++}
++
++bool SAGenTestChecker::isAvShrinkPacketCall(const CallEvent &Call,
++                                            CheckerContext &C) const {
++  const Expr *OriginExpr = Call.getOriginExpr();
++  if (!OriginExpr)
++    return false;
++  return ExprHasName(OriginExpr, "av_shrink_packet", C);
++}
++
+ const MemRegion *
+ SAGenTestChecker::getTrackedRegionFromExpr(const Expr *E,
+                                            CheckerContext &C) const {
+@@ -142,6 +178,50 @@   }
+ 
+   return nullptr;
++}
++
++const VarDecl *SAGenTestChecker::getAssignedVarFromStmt(const Stmt *S) const {
++  if (!S)
++    return nullptr;
++
++  if (const auto *DS = dyn_cast<DeclStmt>(S)) {
++    for (const Decl *D : DS->decls()) {
++      if (const auto *VD = dyn_cast<VarDecl>(D))
++        return VD;
++    }
++  }
++
++  if (const auto *BO = dyn_cast<BinaryOperator>(S)) {
++    if (BO->isAssignmentOp()) {
++      if (const auto *DRE =
++              dyn_cast<DeclRefExpr>(BO->getLHS()->IgnoreParenImpCasts()))
++        return dyn_cast<VarDecl>(DRE->getDecl());
++    }
++  }
++
++  return nullptr;
++}
++
++const VarDecl *
++SAGenTestChecker::getRetVarForAvioReadResult(const CallEvent &Call,
++                                             CheckerContext &C) const {
++  const Expr *OriginExpr = Call.getOriginExpr();
++  if (!OriginExpr)
++    return nullptr;
++
++  const Stmt *ParentBO = findSpecificTypeInParents<BinaryOperator>(OriginExpr, C);
++  if (ParentBO) {
++    if (const auto *BO = dyn_cast<BinaryOperator>(ParentBO)) {
++      if (BO->isAssignmentOp()) {
++        if (const auto *DRE =
++                dyn_cast<DeclRefExpr>(BO->getLHS()->IgnoreParenImpCasts()))
++          return dyn_cast<VarDecl>(DRE->getDecl());
++      }
++    }
++  }
++
++  const Stmt *ParentDS = findSpecificTypeInParents<DeclStmt>(OriginExpr, C);
++  return getAssignedVarFromStmt(ParentDS);
+ }
+ 
+ bool SAGenTestChecker::isSubRegionOf(const MemRegion *Inner,
+@@ -184,12 +264,80 @@   if (!UseMR || !TrackedMR || !S)
+     return true;
+ 
+-  // The key false-positive pattern: same aggregate base, but different sibling
+-  // fields/subregions (e.g. ape->md5 tracked, but ape->frames[i].size used).
+   if (!regionsOverlapOrSubregion(UseMR, TrackedMR))
+     return true;
+ 
++  ProgramStateRef State = C.getState();
++  if (State->get<SafeDstMap>(TrackedMR))
++    return true;
++
+   return false;
++}
++
++bool SAGenTestChecker::conditionMentionsTrackedRetVar(const Stmt *Condition,
++                                                      const VarDecl *VD) const {
++  if (!Condition || !VD)
++    return false;
++
++  const DeclRefExpr *DRE = findSpecificTypeInChildren<DeclRefExpr>(Condition);
++  if (!DRE)
++    return false;
++
++  return DRE->getDecl() == VD;
++}
++
++bool SAGenTestChecker::isSanitizingMemsetForTrackedDst(const CallEvent &Call,
++                                                       const MemRegion *TrackedMR,
++                                                       CheckerContext &C) const {
++  if (!isMemsetCall(Call, C))
++    return false;
++  if (Call.getNumArgs() < 1)
++    return false;
++
++  const Expr *DstArg = Call.getArgExpr(0);
++  if (!DstArg)
++    return false;
++
++  const MemRegion *MemsetMR = getTrackedRegionFromExpr(DstArg, C);
++  if (!MemsetMR)
++    return false;
++
++  return regionsOverlapOrSubregion(MemsetMR, TrackedMR);
++}
++
++bool SAGenTestChecker::isSanitizingShrinkForTrackedDst(const CallEvent &Call,
++                                                       const MemRegion *TrackedMR,
++                                                       CheckerContext &C) const {
++  if (!isAvShrinkPacketCall(Call, C))
++    return false;
++  if (Call.getNumArgs() < 1)
++    return false;
++
++  const Expr *PktArg = Call.getArgExpr(0);
++  if (!PktArg)
++    return false;
++
++  const MemRegion *PktMR = getTrackedRegionFromExpr(PktArg, C);
++  if (!PktMR)
++    return false;
++
++  return regionsOverlapOrSubregion(PktMR, TrackedMR) ||
++         regionsOverlapOrSubregion(TrackedMR, PktMR);
++}
++
++const MemRegion *SAGenTestChecker::findTrackedRegionForUse(const MemRegion *UseMR,
++                                                           ProgramStateRef State) const {
++  if (!UseMR)
++    return nullptr;
++
++  for (const auto &Entry : State->get<ShortReadDstMap>()) {
++    const MemRegion *TrackedMR = Entry.first;
++    if (!TrackedMR)
++      continue;
++    if (regionsOverlapOrSubregion(UseMR, TrackedMR))
++      return TrackedMR;
++  }
++  return nullptr;
+ }
+ 
+ void SAGenTestChecker::clearTrackedRegion(const MemRegion *MR,
+@@ -198,10 +346,27 @@     return;
+ 
+   ProgramStateRef State = C.getState();
++  State = State->remove<ShortReadDstMap>(MR);
++  State = State->remove<SafeDstMap>(MR);
++
++  if (const VarDecl *const *VD = State->get<DstToReadRetVarMap>(MR)) {
++    State = State->remove<ReadRetVarToDstMap>(*VD);
++    State = State->remove<DstToReadRetVarMap>(MR);
++  }
++
++  C.addTransition(State);
++}
++
++void SAGenTestChecker::markTrackedRegionSafe(const MemRegion *MR,
++                                             CheckerContext &C) const {
++  if (!MR)
++    return;
++
++  ProgramStateRef State = C.getState();
+   if (!State->get<ShortReadDstMap>(MR))
+     return;
+ 
+-  State = State->remove<ShortReadDstMap>(MR);
++  State = State->set<SafeDstMap>(MR, true);
+   C.addTransition(State);
+ }
+ 
+@@ -239,11 +404,15 @@   if (!DstMR)
+     return;
+ 
+-  llvm::APSInt RequestedSize;
+-  (void)EvaluateExprToInt(RequestedSize, CE->getArg(2), C);
+-
+   ProgramStateRef State = C.getState();
+   State = State->set<ShortReadDstMap>(DstMR, CE);
++  State = State->remove<SafeDstMap>(DstMR);
++
++  if (const VarDecl *RetVD = getRetVarForAvioReadResult(Call, C)) {
++    State = State->set<ReadRetVarToDstMap>(RetVD, DstMR);
++    State = State->set<DstToReadRetVarMap>(DstMR, RetVD);
++  }
++
+   C.addTransition(State);
+ }
+ 
+@@ -260,6 +429,19 @@     return;
+   }
+ 
++  ProgramStateRef State = C.getState();
++  for (const auto &Entry : State->get<ReadRetVarToDstMap>()) {
++    const VarDecl *RetVD = Entry.first;
++    const MemRegion *DstMR = Entry.second;
++    if (!RetVD || !DstMR)
++      continue;
++
++    if (conditionMentionsTrackedRetVar(Condition, RetVD)) {
++      clearTrackedRegion(DstMR, C);
++      return;
++    }
++  }
++
+   const Expr *CondE = dyn_cast<Expr>(Condition);
+   if (!CondE)
+     return;
+@@ -277,13 +459,25 @@ 
+ void SAGenTestChecker::checkPreCall(const CallEvent &Call,
+                                     CheckerContext &C) const {
++  ProgramStateRef State = C.getState();
++
++  for (const auto &Entry : State->get<ShortReadDstMap>()) {
++    const MemRegion *TrackedMR = Entry.first;
++    if (!TrackedMR)
++      continue;
++
++    if (isSanitizingMemsetForTrackedDst(Call, TrackedMR, C) ||
++        isSanitizingShrinkForTrackedDst(Call, TrackedMR, C)) {
++      markTrackedRegionSafe(TrackedMR, C);
++      return;
++    }
++  }
++
+   if (!isMemcmpCall(Call, C))
+     return;
+ 
+   if (Call.getNumArgs() < 2)
+     return;
+-
+-  ProgramStateRef State = C.getState();
+ 
+   for (unsigned Idx = 0; Idx < 2; ++Idx) {
+     const Expr *ArgE = Call.getArgExpr(Idx);

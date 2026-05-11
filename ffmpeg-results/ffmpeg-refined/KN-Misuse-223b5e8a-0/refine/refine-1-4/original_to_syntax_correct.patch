@@ -1,0 +1,271 @@
+--- original_code.cpp+++ syntax_correct_refine_code.cpp@@ -23,6 +23,7 @@ using namespace taint;
+ 
+ REGISTER_MAP_WITH_PROGRAMSTATE(AggregateDenomMap, const MemRegion *, bool)
++REGISTER_MAP_WITH_PROGRAMSTATE(NonZeroGuardMap, const MemRegion *, bool)
+ 
+ namespace {
+ 
+@@ -45,8 +46,9 @@     return IL->getValue().isZero();
+ 
+   llvm::APSInt Res;
+-  if (EvaluateExprToInt(Res, E, C))
++  if (EvaluateExprToInt(Res, E, C)) {
+     return Res == 0;
++  }
+ 
+   return false;
+ }
+@@ -63,8 +65,7 @@   if (!MR)
+     return nullptr;
+ 
+-  MR = MR->getBaseRegion();
+-  return MR;
++  return MR->getBaseRegion();
+ }
+ 
+ static const MemRegion *getRegionFromTrackedExpr(const Expr *E, CheckerContext &C) {
+@@ -79,52 +80,86 @@   if (!MR)
+     return nullptr;
+ 
+-  MR = MR->getBaseRegion();
+-  return MR;
+-}
+-
+-static const MemRegion *getTrackedRegionFromZeroGuardCond(const Expr *Cond,
+-                                                          CheckerContext &C) {
+-  if (!Cond)
+-    return nullptr;
+-
+-  Cond = Cond->IgnoreParenImpCasts();
+-  if (!Cond)
+-    return nullptr;
+-
+-  if (const auto *DRE = dyn_cast<DeclRefExpr>(Cond)) {
+-    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+-      if (isRealFloatingType(VD->getType()))
+-        return getVarRegionFromDecl(VD, C);
+-    }
+-  }
+-
+-  if (const auto *BO = dyn_cast<BinaryOperator>(Cond)) {
+-    if (BO->getOpcode() == BO_EQ || BO->getOpcode() == BO_NE) {
+-      const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
+-      const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
+-
+-      if (isZeroLiteralExpr(LHS, C)) {
+-        if (const auto *DRE = dyn_cast<DeclRefExpr>(RHS)) {
+-          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+-            if (isRealFloatingType(VD->getType()))
+-              return getVarRegionFromDecl(VD, C);
+-          }
+-        }
+-      }
+-
+-      if (isZeroLiteralExpr(RHS, C)) {
+-        if (const auto *DRE = dyn_cast<DeclRefExpr>(LHS)) {
+-          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+-            if (isRealFloatingType(VD->getType()))
+-              return getVarRegionFromDecl(VD, C);
+-          }
+-        }
+-      }
+-    }
+-  }
+-
+-  return nullptr;
++  return MR->getBaseRegion();
++}
++
++static const VarDecl *getFloatVarDeclFromExpr(const Expr *E) {
++  if (!E)
++    return nullptr;
++
++  E = E->IgnoreParenImpCasts();
++  if (!E)
++    return nullptr;
++
++  const auto *DRE = dyn_cast<DeclRefExpr>(E);
++  if (!DRE)
++    return nullptr;
++
++  const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
++  if (!VD)
++    return nullptr;
++
++  if (!isRealFloatingType(VD->getType()))
++    return nullptr;
++
++  return VD;
++}
++
++static bool exprIsTrackedFloatVar(const Expr *E, CheckerContext &C,
++                                  const MemRegion *&MR) {
++  MR = nullptr;
++  const VarDecl *VD = getFloatVarDeclFromExpr(E);
++  if (!VD)
++    return false;
++
++  MR = getVarRegionFromDecl(VD, C);
++  return MR != nullptr;
++}
++
++/// Returns true iff the current path state plus Cond imply that TrackedExpr
++/// is non-zero on the path where Cond evaluates to true.
++static bool conditionImpliesNonZeroOnTrue(const Expr *Cond,
++                                          const Expr *TrackedExpr,
++                                          CheckerContext &C) {
++  if (!Cond || !TrackedExpr)
++    return false;
++
++  SVal CondV = C.getState()->getSVal(Cond, C.getLocationContext());
++  std::optional<DefinedSVal> DCond = CondV.getAs<DefinedSVal>();
++  if (!DCond)
++    return false;
++
++  ProgramStateRef TrueState = C.getState()->assume(*DCond, true);
++  if (!TrueState)
++    return false;
++
++  SVal TV = TrueState->getSVal(TrackedExpr, C.getLocationContext());
++  std::optional<DefinedSVal> DTV = TV.getAs<DefinedSVal>();
++  if (!DTV)
++    return false;
++
++  ProgramStateRef ZeroState =
++      TrueState->assumeInclusiveRange(*DTV, llvm::APSInt::get(0),
++                                      llvm::APSInt::get(0), true);
++  ProgramStateRef NonZeroState =
++      TrueState->assumeInclusiveRange(*DTV, llvm::APSInt::get(0),
++                                      llvm::APSInt::get(0), false);
++
++  // If zero is infeasible but some non-zero value is feasible under Cond==true,
++  // then Cond proves the tracked expr is non-zero on the true branch.
++  return ZeroState == nullptr && NonZeroState != nullptr;
++}
++
++static bool isFalsePositive(const BinaryOperator *BO, CheckerContext &C,
++                            const MemRegion *MR) {
++  if (!BO || !MR)
++    return false;
++
++  const bool *KnownNonZero = C.getState()->get<NonZeroGuardMap>(MR);
++  if (KnownNonZero && *KnownNonZero)
++    return true;
++
++  return false;
+ }
+ 
+ class SAGenTestChecker
+@@ -175,6 +210,7 @@       continue;
+ 
+     State = State->set<AggregateDenomMap>(MR, true);
++    State = State->remove<NonZeroGuardMap>(MR);
+     Changed = true;
+   }
+ 
+@@ -193,17 +229,28 @@   if (!LHSReg)
+     return;
+ 
++  // Any write invalidates previously remembered "known non-zero because of guard"
++  // information for that region.
++  if (State->get<NonZeroGuardMap>(LHSReg))
++    State = State->remove<NonZeroGuardMap>(LHSReg);
++
+   const bool *Tracked = State->get<AggregateDenomMap>(LHSReg);
+-  if (!Tracked || !*Tracked)
+-    return;
++  if (!Tracked || !*Tracked) {
++    C.addTransition(State);
++    return;
++  }
+ 
+   const Expr *BindExpr = dyn_cast_or_null<Expr>(S);
+-  if (!BindExpr)
+-    return;
++  if (!BindExpr) {
++    C.addTransition(State);
++    return;
++  }
+ 
+   BindExpr = BindExpr->IgnoreParenImpCasts();
+-  if (!BindExpr)
+-    return;
++  if (!BindExpr) {
++    C.addTransition(State);
++    return;
++  }
+ 
+   if (isZeroLiteralExpr(BindExpr, C)) {
+     C.addTransition(State);
+@@ -229,16 +276,53 @@   if (!CondE)
+     return;
+ 
+-  const MemRegion *MR = getTrackedRegionFromZeroGuardCond(CondE, C);
+-  if (!MR)
+-    return;
+-
+-  const bool *Tracked = State->get<AggregateDenomMap>(MR);
+-  if (!Tracked || !*Tracked)
+-    return;
+-
+-  State = State->remove<AggregateDenomMap>(MR);
+-  C.addTransition(State);
++  CondE = CondE->IgnoreParenImpCasts();
++  if (!CondE)
++    return;
++
++  bool Changed = false;
++
++  // Simple direct case: if (x), if (x != 0), if (x > 0), if (x < 0), ...
++  if (const VarDecl *VD = getFloatVarDeclFromExpr(CondE)) {
++    const MemRegion *MR = getVarRegionFromDecl(VD, C);
++    if (MR) {
++      const bool *Tracked = State->get<AggregateDenomMap>(MR);
++      if (Tracked && *Tracked &&
++          conditionImpliesNonZeroOnTrue(CondE, CondE, C)) {
++        State = State->set<NonZeroGuardMap>(MR, true);
++        Changed = true;
++      }
++    }
++  }
++
++  if (const auto *BO = dyn_cast<BinaryOperator>(CondE)) {
++    const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
++    const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
++
++    const MemRegion *MR = nullptr;
++
++    if (exprIsTrackedFloatVar(LHS, C, MR)) {
++      const bool *Tracked = State->get<AggregateDenomMap>(MR);
++      if (Tracked && *Tracked &&
++          conditionImpliesNonZeroOnTrue(CondE, LHS, C)) {
++        State = State->set<NonZeroGuardMap>(MR, true);
++        Changed = true;
++      }
++    }
++
++    MR = nullptr;
++    if (exprIsTrackedFloatVar(RHS, C, MR)) {
++      const bool *Tracked = State->get<AggregateDenomMap>(MR);
++      if (Tracked && *Tracked &&
++          conditionImpliesNonZeroOnTrue(CondE, RHS, C)) {
++        State = State->set<NonZeroGuardMap>(MR, true);
++        Changed = true;
++      }
++    }
++  }
++
++  if (Changed)
++    C.addTransition(State);
+ }
+ 
+ void SAGenTestChecker::checkPreStmt(const BinaryOperator *BO,
+@@ -280,6 +364,9 @@   if (!Tracked || !*Tracked)
+     return;
+ 
++  if (isFalsePositive(BO, C, MR))
++    return;
++
+   reportBug(BO, C, MR);
+ }
+ 

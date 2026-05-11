@@ -1,0 +1,43 @@
+Refinment Plan:
+1. Root cause of the false positive
+   - The checker currently marks every destination buffer passed to `avio_read()` as suspicious in `checkPostCall()`, regardless of how the return value is used later.
+   - It then reports on any later load from that buffer in `checkLocation()`.
+   - This is too coarse for streaming/accumulation patterns like `read_whole_file()`:
+     - `avio_read(io, buf, bufsize - size - 1);`
+     - `size += r;`
+     - later code only uses the initialized prefix `[buf, buf + size)`.
+   - In `sbgdec.c`, the parser is bounded by `end = script + script_len`, where `script_len` is exactly the accumulated bytes actually read. So the code does not assume a full read of the requested amount.
+   - The checker loses that distinction because it tracks only “buffer was used as avio_read destination”, not whether the program also tracks the actual byte count and bounds all later accesses by it.
+
+2. Specific fix
+   - Introduce a second state map to remember variables that receive `avio_read()` return values.
+   - Introduce a third state set/map to record destination regions participating in a “streaming short-read handled” pattern:
+     - assignment/declaration like `r = avio_read(..., dst, n)` or `int r = avio_read(..., dst, n);`
+     - later branch checks on that same return variable (`if (r == AVERROR_EOF)`, `if (r < 0)`, etc.)
+     - later accumulation/update of a size/offset variable with that same return variable (`size += r`, `size = size + r`)
+   - Once such a pattern is recognized, suppress reports for that destination region.
+   - Keep reporting for the target bug pattern:
+     - fixed-size `avio_read()` into buffer
+     - no exact/full-read validation
+     - buffer subsequently consumed via loads or `memcmp()`.
+
+3. Why this preserves true positives
+   - The buggy examples (`dss`, `mlv`, `dtshd`) do not use the `avio_read()` result in a streaming accumulation pattern that bounds subsequent parsing.
+   - They still get tracked in `ShortReadDstMap` and remain reportable on later load / `memcmp()`.
+
+4. Edge cases / regressions considered
+   - Declaration-init and assignment forms are both handled.
+   - We do not clear suspicion merely because the return value is branched on once; we require a stronger pattern for suppression:
+     - return variable comes from `avio_read()`
+     - branch on that variable
+     - and accumulation/use as byte count via assignment/bind
+   - This avoids suppressing real bugs where code only checks `ret < 0` but still ignores short reads.
+   - We also keep the checker conservative: suppression is region-based and only for the recognized streaming pattern.
+   - Clang-18 compatibility:
+     - uses existing checker callbacks already in your code set
+     - keeps all includes
+     - relies on `REGISTER_MAP_WITH_PROGRAMSTATE` / `REGISTER_SET_WITH_PROGRAMSTATE`.
+
+Refined Code:
+```cpp
+```

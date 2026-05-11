@@ -1,0 +1,92 @@
+```
+1. **Use a small custom program state to remember “possibly-zero aggregate factors”:**
+   - Define one map with `REGISTER_MAP_WITH_PROGRAMSTATE`, for example:
+     - `AggregateDenomMap : const MemRegion * -> bool`
+   - Meaning:
+     - when a floating-point variable is being used as an aggregate denominator candidate and is explicitly initialized to zero, record its region in the map;
+     - keep it tracked until it is guarded by a non-zero check or used as a divisor.
+   - No alias map is necessary for this checker. This pattern is local and can be handled by directly tracking the target variable’s `MemRegion`.
+
+2. **Seed tracking from declarations and assignments (`checkPostStmt` on `DeclStmt`, optionally `checkBind`):**
+   - The bug pattern usually starts with an accumulator initialized to `0` or `0.0f`, such as `float norm_fac = 0.0f;`.
+   - In `checkPostStmt(const DeclStmt *)`:
+     - Iterate declared variables.
+     - Restrict to real floating-point locals (`float`, `double`).
+     - If the variable has an initializer and `EvaluateExprToInt` cannot help because it is float, inspect the initializer syntactically:
+       - accept `FloatingLiteral` equal to zero;
+       - also accept integer literal zero used in FP initialization through implicit cast.
+     - Get the variable region from the declaration and store it in `AggregateDenomMap`.
+   - Also use `checkBind` to preserve/update the tracked state:
+     - If the left-hand side location corresponds to a tracked floating-point variable and it is assigned a clear zero literal, keep it tracked.
+     - If it is assigned a non-zero constant, remove it from the map.
+     - If it is assigned from an expression of the form `x + y`, `x - y`, `sum += ...`, etc., keep the tracked state unchanged unless you can prove the value is non-zero. The goal is to conservatively keep “may still be zero”.
+   - Keep this simple: the important part is to recognize variables like `norm_fac` that start at zero and later accumulate data-dependent values.
+
+3. **Recognize accumulation into the candidate denominator (`checkBind`):**
+   - The target pattern is “aggregate factor computed from runtime data”, commonly by:
+     - `var += expr`
+     - `var = var + expr`
+   - In `checkBind`:
+     - Look at the statement `S`; if it is a `BinaryOperator` assignment/update affecting a tracked variable region, do not remove it from the map just because it was updated.
+     - This is the core heuristic: an accumulator initialized to zero and updated from runtime values is still “possibly zero” unless guarded.
+   - You do not need to prove that all contributions are zero. The checker only needs to remember that zero remains feasible.
+
+4. **Mark the variable as guarded when a branch checks it (`checkBranchCondition`):**
+   - Use `checkBranchCondition` as suggested.
+   - Inspect the condition to detect non-zero guarding patterns on a tracked floating-point variable:
+     - `if (x)`
+     - `if (x != 0)`
+     - `if (x == 0)` (this still counts as an explicit zero-related guard)
+     - ternary-style conditions are not necessary if you want to keep the checker simple.
+   - Implementation approach:
+     - If the condition is a `DeclRefExpr` to a tracked variable, treat it as a guard.
+     - If the condition is a `BinaryOperator` `==` or `!=`, inspect both sides:
+       - one side should be a `DeclRefExpr` to the tracked variable,
+       - the other side should be a zero literal (floating or integer zero through cast).
+   - Once such a guard is found, remove that region from `AggregateDenomMap`.
+   - This intentionally suppresses reports for the fixed code pattern:
+     - `norm_fac = norm_fac ? 1.0f / norm_fac : 0;`
+     - because the condition expression explicitly checks `norm_fac`.
+
+5. **Detect unsafe floating-point division/inversion (`checkPreStmt` on division expressions, or `checkBind` using the assignment stmt):**
+   - The main sink is a floating-point division where the denominator is a tracked aggregate variable.
+   - The simplest implementation is to register `check::PreStmt<BinaryOperator>`, even though it is not listed explicitly in the summary; CSA supports typed `checkPreStmt`.
+   - In that callback:
+     - Restrict to `BinaryOperator` with opcode `/`.
+     - Restrict to floating-point result or floating-point operands.
+     - Inspect the RHS (denominator).
+     - If the RHS is a `DeclRefExpr` referring to a tracked region in `AggregateDenomMap`, report.
+   - This directly catches:
+     - `norm_fac = 1.0f / norm_fac;`
+   - To keep the checker robust, also handle the common equivalent cases:
+     - denominator wrapped in implicit casts or parentheses (`IgnoreImpCasts`, `IgnoreParenImpCasts`);
+     - denominator appearing as a unary-minus wrapper can be ignored if you want simplicity, since `-0.0` is still zero but not needed for the initial checker.
+   - If you prefer not to add `PreStmt<BinaryOperator>`, you can still do this in `checkBind`:
+     - inspect whether `S` is a `BinaryOperator` assignment,
+     - then inspect its RHS for a nested division expression using `findSpecificTypeInChildren<BinaryOperator>(...)`,
+     - but direct `PreStmt<BinaryOperator>` is cleaner and simpler.
+
+6. **Optionally detect library-style inversion helpers (`checkPreCall`) only if needed:**
+   - This bug pattern is primarily about `/` in source code, so `checkPreCall` is not required.
+   - If later you want to extend it, you could look for wrappers/macros lowered to helper calls that semantically divide by a tracked factor, but this is unnecessary for the target patch.
+
+7. **Bug reporting:**
+   - Create one `BugType`, for example with a short category/message like:
+     - `"Possible division by zero"`
+   - When a report is triggered:
+     - generate a non-fatal error node;
+     - emit a `PathSensitiveBugReport` with a short clear message such as:
+       - `"division by possibly zero aggregate factor"`
+   - Highlight the division statement as the primary range.
+   - The report should stay short and should focus on the missing zero check before using the accumulated floating-point denominator.
+
+8. **Heuristic boundaries to keep the checker simple and accurate enough:**
+   - Only track local floating-point scalar variables.
+   - Only report when the denominator is a direct variable reference, not an arbitrary expression.
+   - Only suppress when there is an explicit branch/condition involving that same variable and zero/non-zero.
+   - This is sufficient for the target bug pattern:
+     - accumulator initialized to zero,
+     - updated from runtime data,
+     - later inverted by `1.0f / var`,
+     - no preceding zero guard.
+```

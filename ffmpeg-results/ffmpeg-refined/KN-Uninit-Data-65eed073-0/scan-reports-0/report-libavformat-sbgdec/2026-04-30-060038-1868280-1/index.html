@@ -1,0 +1,157 @@
+<html>
+<head>
+<title>ffmpeg - scan-build results</title>
+<link type="text/css" rel="stylesheet" href="scanview.css"/>
+<script src="sorttable.js"></script>
+<script language='javascript' type="text/javascript">
+function SetDisplay(RowClass, DisplayVal)
+{
+  var Rows = document.getElementsByTagName("tr");
+  for ( var i = 0 ; i < Rows.length; ++i ) {
+    if (Rows[i].className == RowClass) {
+      Rows[i].style.display = DisplayVal;
+    }
+  }
+}
+
+function CopyCheckedStateToCheckButtons(SummaryCheckButton) {
+  var Inputs = document.getElementsByTagName("input");
+  for ( var i = 0 ; i < Inputs.length; ++i ) {
+    if (Inputs[i].type == "checkbox") {
+      if(Inputs[i] != SummaryCheckButton) {
+        Inputs[i].checked = SummaryCheckButton.checked;
+        Inputs[i].onclick();
+      }
+    }
+  }
+}
+
+function returnObjById( id ) {
+    if (document.getElementById)
+        var returnVar = document.getElementById(id);
+    else if (document.all)
+        var returnVar = document.all[id];
+    else if (document.layers)
+        var returnVar = document.layers[id];
+    return returnVar;
+}
+
+var NumUnchecked = 0;
+
+function ToggleDisplay(CheckButton, ClassName) {
+  if (CheckButton.checked) {
+    SetDisplay(ClassName, "");
+    if (--NumUnchecked == 0) {
+      returnObjById("AllBugsCheck").checked = true;
+    }
+  }
+  else {
+    SetDisplay(ClassName, "none");
+    NumUnchecked++;
+    returnObjById("AllBugsCheck").checked = false;
+  }
+}
+</script>
+<!-- SUMMARYENDHEAD -->
+</head>
+<body>
+<h1>ffmpeg - scan-build results</h1>
+
+<table>
+<tr><th>User:</th><td>cc@mingkai-gigaio</td></tr>
+<tr><th>Working Directory:</th><td>/home/cc/ai2sec/KNighter/ffmpeg</td></tr>
+<tr><th>Command Line:</th><td>make libavformat/sbgdec.o -j32</td></tr>
+<tr><th>Clang Version:</th><td>clang version 18.1.8 (https://github.com/ise-uiuc/KNighter.git f4e834b3074104001c31c5c262ab11e28d1a8e38)
+</td></tr>
+<tr><th>Date:</th><td>Thu Apr 30 06:00:38 2026</td></tr>
+</table>
+<h2>Bug Summary</h2><table>
+<thead><tr><td>Bug Type</td><td>Quantity</td><td class="sorttable_nosort">Display?</td></tr></thead>
+<tr style="font-weight:bold"><td class="SUMM_DESC">All Bugs</td><td class="Q">22</td><td><center><input type="checkbox" id="AllBugsCheck" onClick="CopyCheckedStateToCheckButtons(this);" checked/></center></td></tr>
+<tr><th>API</th><th colspan=2></th></tr>
+<tr><td class="SUMM_DESC">Unchecked avio_read result</td><td class="Q">22</td><td><center><input type="checkbox" onClick="ToggleDisplay(this,'bt_api_unchecked_avio_read_result');" checked/></center></td></tr>
+</table>
+<h2>Reports</h2>
+
+<table class="sortable" style="table-layout:automatic">
+<thead><tr>
+  <td>Bug Group</td>
+  <td class="sorttable_sorted">Bug Type<span id="sorttable_sortfwdind">&nbsp;&#x25BE;</span></td>
+  <td>File</td>
+  <td>Function/Method</td>
+  <td class="Q">Line</td>
+  <td class="Q">Path Length</td>
+  <td class="sorttable_nosort"></td>
+  <!-- REPORTBUGCOL -->
+</tr></thead>
+<tbody>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_name</td><td class="Q">300</td><td class="Q">16</td><td><a href="report-04e87e.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-04e87e.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_wsword</td><td class="Q">286</td><td class="Q">12</td><td><a href="report-070106.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-070106.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_name</td><td class="Q">301</td><td class="Q">17</td><td><a href="report-0f3c84.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-0f3c84.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_line_end</td><td class="Q">274</td><td class="Q">14</td><td><a href="report-134279.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-134279.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_line_end</td><td class="Q">268</td><td class="Q">13</td><td><a href="report-1c5746.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-1c5746.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">str_to_time</td><td class="Q">186</td><td class="Q">19</td><td><a href="report-1c7037.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-1c7037.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_name</td><td class="Q">301</td><td class="Q">18</td><td><a href="report-26082f.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-26082f.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_name</td><td class="Q">300</td><td class="Q">17</td><td><a href="report-3eae3c.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-3eae3c.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">parse_options</td><td class="Q">443</td><td class="Q">14</td><td><a href="report-485375.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-485375.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">parse_options</td><td class="Q">360</td><td class="Q">13</td><td><a href="report-5b7f61.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-5b7f61.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">str_to_time</td><td class="Q">186</td><td class="Q">20</td><td><a href="report-663d73.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-663d73.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_name</td><td class="Q">300</td><td class="Q">16</td><td><a href="report-66f591.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-66f591.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_name</td><td class="Q">300</td><td class="Q">15</td><td><a href="report-6789d2.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-6789d2.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_wsword</td><td class="Q">288</td><td class="Q">14</td><td><a href="report-6c200a.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-6c200a.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_name</td><td class="Q">301</td><td class="Q">19</td><td><a href="report-8330b3.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-8330b3.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_line_end</td><td class="Q">266</td><td class="Q">10</td><td><a href="report-ab01aa.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-ab01aa.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_space</td><td class="Q">227</td><td class="Q">6</td><td><a href="report-bbf4cc.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-bbf4cc.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_wsword</td><td class="Q">288</td><td class="Q">15</td><td><a href="report-d38d01.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-d38d01.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_fixed</td><td class="Q">258</td><td class="Q">18</td><td><a href="report-df1819.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-df1819.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">parse_options</td><td class="Q">356</td><td class="Q">8</td><td><a href="report-edf948.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-edf948.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_name</td><td class="Q">301</td><td class="Q">18</td><td><a href="report-efa04c.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-efa04c.html" -->
+</tr>
+<tr class="bt_api_unchecked_avio_read_result"><td class="DESC">API</td><td class="DESC">Unchecked avio_read result</td><td>sbgdec.c</td><td class="DESC">lex_char</td><td class="Q">234</td><td class="Q">11</td><td><a href="report-f0c9a0.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-f0c9a0.html" -->
+</tr>
+</tbody>
+</table>
+
+</body></html>

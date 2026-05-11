@@ -1,0 +1,42 @@
+Refinment Plan:
+1. Root cause:
+   - The checker currently tracks any local floating-point variable initialized to `0` as an “aggregate denominator”.
+   - It reports whenever that variable is later used as the RHS of a floating-point division.
+   - This is too broad: many ordinary FP temporaries are initialized to zero and later assigned a computed coefficient before division, as in `b0` in `set_highshelf_rbj()`.
+   - The current `checkBind()` logic is also too weak for distinguishing true aggregate accumulation from ordinary reassignment. It keeps tracking symbolic/computed values instead of modeling whether the variable is still acting like an accumulated factor.
+   - `checkBranchCondition()` is too aggressive: it removes tracking on any branch mentioning the variable or comparing it to zero, without checking whether the branch actually guards the dangerous divide on the non-zero path.
+
+2. Specific fix:
+   - Introduce richer state tracking instead of a single `bool`.
+   - Track variables only after they participate in aggregate-style accumulation from zero, e.g.:
+     - `x += y`
+     - `x = x + y`
+   - Distinguish “aggregate candidate” from “guarded”.
+   - Stop tracking on plain overwrite assignments like `b0 = expr;` because these are not the target pattern.
+   - Report only when the denominator is a tracked aggregate candidate.
+   - Preserve tracking across zero-preserving updates, but clear tracking when the variable is definitely overwritten with a fresh non-aggregate expression.
+   - Add a narrow guard recognizer for:
+     - `if (x)`, `if (!x)`
+     - `if (x != 0)`, `if (x == 0)`, and flipped forms
+     - ternary conditional operator `x ? 1.0/x : ...` is naturally handled because the divide occurs in the true branch after assumption refinement; however to stay simple and Clang-18-compatible in checker callbacks here, we conservatively treat branch conditions only.
+   - This preserves detection of the target bug, because `norm_fac`:
+     - starts at zero,
+     - is updated through `norm_fac += band->norm_fac;`,
+     - is later used in `1.0f / norm_fac`,
+     - and has no proper zero guard in the buggy version.
+   - It also suppresses the false positive for `b0`, since `b0` is initialized to zero but then overwritten with `b0 = ...;` rather than accumulated.
+
+3. Edge cases / regressions:
+   - Still detects:
+     - `float x = 0; ... x += foo; ... y = 1.0/x;`
+     - `float x = 0; ... x = x + foo; ... y = 1.0/x;`
+   - Avoids FPs on:
+     - coefficient temporaries initialized to zero then overwritten once,
+     - generic computed denominators not built by accumulation.
+   - We intentionally keep support limited to local FP variables and direct `DeclRefExpr` denominators, matching the original checker’s target and minimizing regressions.
+   - We do not remove includes, per instruction.
+   - API usage is compatible with Clang-18.
+
+Refined Code:
+```cpp
+```

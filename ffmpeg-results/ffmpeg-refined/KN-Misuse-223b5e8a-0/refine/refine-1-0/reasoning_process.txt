@@ -1,0 +1,44 @@
+Refinment Plan:
+1. Root cause:
+   - The checker tracks a floating local variable as a “possibly-zero aggregate denominator” almost solely from:
+     - zero initialization in `checkPostStmt`, and
+     - continued tracking across binds unless it sees a constant nonzero assignment.
+   - This is too coarse. It does not distinguish:
+     - true aggregate-building patterns such as `norm_fac += band->norm_fac;`
+     - from unrelated values that become provably/non-provably positive through earlier control flow.
+   - In the false positive, `bit_size` is computed by summing `scan->code[i].size` values, and execution already passed checks using `scan->code[14].size` as a divisor. The checker ignores this path evidence and reports just because `bit_size` started from `0.f` and was later used as a divisor.
+
+2. Specific fixes:
+   - Track more precise state for each variable instead of a plain `bool`.
+   - Only track variables as candidate aggregate denominators when we actually observe aggregate construction patterns:
+     - `x += y`
+     - `x = x + y`
+   - Preserve tracking across zero reinitialization, but drop it on unrelated non-aggregate assignments.
+   - Suppress reports when the denominator is likely guaranteed nonzero by dominating evidence, specifically:
+     - if the same variable was built from a sum and one of the summed terms is a field/array/subscript/member `.size`/`->size`,
+     - and before the division we see a prior division using the same positive structural term, e.g. `w / (float)scan->code[14].size`.
+   - Add a helper `isFalsePositive(...)` as requested.
+
+3. Edge cases / regressions:
+   - Keep detecting the target bug:
+     - `norm_fac` is initialized to `0.0f`
+     - later updated by `norm_fac += band->norm_fac`
+     - later used in `1.0f / norm_fac`
+     - no zero guard
+     - still reported.
+   - Avoid dropping reports for true positives where no structural prior-divisor evidence exists.
+   - Handle both `+=` and `x = x + y`.
+   - Keep compatibility with Clang-18 APIs and existing includes.
+
+4. Design:
+   - Replace `AggregateDenomMap<const MemRegion*, bool>` with `AggregateInfoMap<const MemRegion*, AggregateInfo>`.
+   - `AggregateInfo` stores:
+     - whether it is aggregate-built,
+     - whether it is currently maybe-zero,
+     - whether we saw a size-like contribution,
+     - source location of last aggregate update.
+   - Use `checkPreStmt<BinaryOperator>` both to recognize updates and to report divisions.
+
+Refined Code:
+```cpp
+```

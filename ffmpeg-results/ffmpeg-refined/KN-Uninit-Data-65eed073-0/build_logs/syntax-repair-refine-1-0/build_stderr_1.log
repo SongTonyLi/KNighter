@@ -1,0 +1,18 @@
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In member function ‘const clang::ento::MemRegion* {anonymous}::SAGenTestChecker::getRetVarRegionFromAvioReadCall(const clang::CallExpr*, clang::ento::CheckerContext&) const’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:194:15: warning: unused variable ‘ACtx’ [-Wunused-variable]
+  194 |   ASTContext &ACtx = C.getASTContext();
+      |               ^~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In member function ‘bool {anonymous}::SAGenTestChecker::callUsesTrackedBufferWithTrackedSize(const clang::ento::CallEvent&, const clang::ento::MemRegion*, clang::ento::CheckerContext&) const’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:267:61: error: cannot convert ‘clang::ento::ProgramStatePartialTrait<llvm::ImmutableMap<const clang::ento::MemRegion*, const clang::ento::MemRegion*> >::lookup_type’ {aka ‘const clang::ento::MemRegion* const*’} to ‘const clang::ento::MemRegion*’ in initialization
+  267 |   const MemRegion *RetVarMR = State->get<ShortReadRetVarMap>(TrackedDstMR);
+      |                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~
+      |                                                             |
+      |                                                             clang::ento::ProgramStatePartialTrait<llvm::ImmutableMap<const clang::ento::MemRegion*, const clang::ento::MemRegion*> >::lookup_type {aka const clang::ento::MemRegion* const*}
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: At global scope:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:306:6: warning: ‘void {anonymous}::SAGenTestChecker::clearTrackedRegion(const clang::ento::MemRegion*, clang::ento::CheckerContext&) const’ defined but not used [-Wunused-function]
+  306 | void SAGenTestChecker::clearTrackedRegion(const MemRegion *MR,
+      |      ^~~~~~~~~~~~~~~~
+make[3]: *** [tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/build.make:79: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/SAGenTestChecker.cpp.o] Error 1
+make[2]: *** [CMakeFiles/Makefile2:35772: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/all] Error 2
+make[1]: *** [CMakeFiles/Makefile2:35779: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/rule] Error 2
+make: *** [Makefile:7495: SAGenTestPlugin] Error 2

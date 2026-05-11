@@ -1,0 +1,7 @@
+libavformat_wavdec
+libavformat_thp
+libavformat_vivo
+libavformat_gifdec
+libavformat_ty
+libavformat_flvdec
+._libavutil_uuid

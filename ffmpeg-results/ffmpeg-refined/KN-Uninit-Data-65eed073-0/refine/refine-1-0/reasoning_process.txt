@@ -1,0 +1,37 @@
+Refinment Plan:
+1. Root cause:
+   - The checker tracks the destination buffer of every `avio_read()` and reports on any later load from that region.
+   - It clears the tracked state only when the `avio_read()` call itself, or a variable directly initialized from it, appears in a branch condition.
+   - In the false-positive case, the code does not require a full read, but it does something stronger and sufficient for safety:
+     - it stores the actual returned byte count in `size`,
+     - passes that exact size into `read_obu_with_size(header, size, ...)`,
+     - and zero-initializes the parser padding bytes.
+   - The checker is therefore missing a notion of “safe bounded consumption”: the buffer is used, but only up to the number of bytes actually read.
+
+2. Fix strategy:
+   - Keep tracking `avio_read()` destinations.
+   - Also track the return-value variable when the `avio_read()` result is assigned to a local variable.
+   - Suppress reports when a tracked buffer is passed to a parser/helper together with the same tracked return variable as an explicit size bound.
+   - More specifically, detect calls like `foo(buf, size, ...)` where:
+     - `buf` aliases the tracked destination region, and
+     - one argument is the variable that received the `avio_read()` return value.
+   - Clear the tracked buffer after such a safe bounded-consumption call.
+   - Also support assignment form `ret = avio_read(...)`, not only declaration initializer form `int ret = avio_read(...)`.
+
+3. Why this preserves true positives:
+   - Target buggy cases still report:
+     - direct field/index loads after unchecked `avio_read()`,
+     - `memcmp()` on the buffer without a full-read check,
+     - string/control/data uses without proving full initialization.
+   - The new suppression is narrow: it only applies when the code explicitly threads the actual `avio_read()` return value into a subsequent consumer call as a bound.
+
+4. Edge cases / regressions considered:
+   - Multiple `avio_read()` calls into different buffers with different return variables.
+   - Assignment after declaration (`size = avio_read(...)`).
+   - Safe parser call not in branch conditions.
+   - Memcmp-style true positives still fire because they do not pass the tracked size variable as a bound.
+   - We avoid removing any includes and remain compatible with Clang-18 APIs.
+
+Refined Code:
+```cpp
+```

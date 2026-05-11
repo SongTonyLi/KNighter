@@ -1,0 +1,15 @@
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In member function ‘clang::ento::ProgramStateRef {anonymous}::SAGenTestChecker::evalAssume(clang::ento::ProgramStateRef, clang::ento::SVal, bool) const’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:278:56: error: unable to deduce ‘const auto*’ from ‘Cond.clang::ento::SVal::getAs<clang::ento::nonloc::SymbolVal>()’
+  278 |   const auto *StateExpr = Cond.getAs<nonloc::SymbolVal>();
+      |                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:278:57: note:   mismatched types ‘const auto*’ and ‘std::optional<clang::ento::nonloc::SymbolVal>’
+  278 |   const auto *StateExpr = Cond.getAs<nonloc::SymbolVal>();
+      |                                                         ^
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: At global scope:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:159:13: warning: ‘bool {anonymous}::isRecognizedNonZeroGuardForRegion(const clang::Expr*, const clang::ento::MemRegion*, bool, clang::ento::CheckerContext&)’ defined but not used [-Wunused-function]
+  159 | static bool isRecognizedNonZeroGuardForRegion(const Expr *Cond,
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+make[3]: *** [tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/build.make:79: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/SAGenTestChecker.cpp.o] Error 1
+make[2]: *** [CMakeFiles/Makefile2:35772: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/all] Error 2
+make[1]: *** [CMakeFiles/Makefile2:35779: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/rule] Error 2
+make: *** [Makefile:7495: SAGenTestPlugin] Error 2

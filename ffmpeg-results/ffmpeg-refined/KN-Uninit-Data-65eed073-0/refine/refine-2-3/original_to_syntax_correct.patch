@@ -1,0 +1,360 @@
+--- original_code.cpp+++ syntax_correct_refine_code.cpp@@ -23,6 +23,7 @@ using namespace taint;
+ 
+ REGISTER_MAP_WITH_PROGRAMSTATE(ShortReadDstMap, const MemRegion *, const CallExpr *)
++REGISTER_SET_WITH_PROGRAMSTATE(CheckedShortReadRegions, const MemRegion *)
+ 
+ namespace {
+ 
+@@ -44,10 +45,14 @@                      CheckerContext &C) const;
+ 
+ private:
++  bool isNamedCall(const CallEvent &Call, StringRef ExactName) const;
++  bool isNamedCall(const CallExpr *CE, CheckerContext &C, StringRef ExactName) const;
+   bool isAvioReadCall(const CallExpr *CE, CheckerContext &C) const;
+   bool isAvioReadCall(const CallEvent &Call, CheckerContext &C) const;
+   bool isMemcmpCall(const CallEvent &Call, CheckerContext &C) const;
+-
++  bool isSafeExactReadCall(const CallEvent &Call, CheckerContext &C) const;
++
++  const MemRegion *getBaseRegion(const MemRegion *MR) const;
+   const MemRegion *getTrackedRegionFromExpr(const Expr *E,
+                                             CheckerContext &C) const;
+   const MemRegion *getTrackedRegionFromAvioReadCall(const CallExpr *CE,
+@@ -60,34 +65,74 @@   bool isTrackedUse(const MemRegion *UseMR, const MemRegion *TrackedMR) const;
+   bool isFalsePositive(const MemRegion *UseMR, const MemRegion *TrackedMR,
+                        const Stmt *S, CheckerContext &C) const;
++  bool isBufferConsumingStmt(const Stmt *S, const MemRegion *UseMR,
++                             const MemRegion *TrackedMR, CheckerContext &C) const;
++  bool isCheckedRegion(const MemRegion *MR, CheckerContext &C) const;
+ 
+   void clearTrackedRegion(const MemRegion *MR, CheckerContext &C) const;
++  void markCheckedRegion(const MemRegion *MR, CheckerContext &C) const;
+   void reportBug(const MemRegion *MR, const Stmt *S, CheckerContext &C,
+                  StringRef Msg) const;
+ };
+ 
++bool SAGenTestChecker::isNamedCall(const CallEvent &Call,
++                                   StringRef ExactName) const {
++  if (const IdentifierInfo *ID = Call.getCalleeIdentifier())
++    return ID->getName() == ExactName;
++  return false;
++}
++
++bool SAGenTestChecker::isNamedCall(const CallExpr *CE,
++                                   CheckerContext &C,
++                                   StringRef ExactName) const {
++  if (!CE)
++    return false;
++
++  const Expr *Callee = CE->getCallee();
++  if (!Callee)
++    return false;
++
++  Callee = Callee->IgnoreParenImpCasts();
++  if (const auto *DRE = dyn_cast<DeclRefExpr>(Callee)) {
++    if (const auto *FD = dyn_cast<FunctionDecl>(DRE->getDecl()))
++      return FD->getIdentifier() && FD->getName() == ExactName;
++  }
++
++  return false;
++}
++
+ bool SAGenTestChecker::isAvioReadCall(const CallExpr *CE,
+                                       CheckerContext &C) const {
+-  if (!CE)
+-    return false;
+-  return ExprHasName(CE, "avio_read", C) && !ExprHasName(CE, "ffio_read_size", C);
++  return isNamedCall(CE, C, "avio_read");
+ }
+ 
+ bool SAGenTestChecker::isAvioReadCall(const CallEvent &Call,
+                                       CheckerContext &C) const {
+-  const Expr *OriginExpr = Call.getOriginExpr();
+-  if (!OriginExpr)
+-    return false;
+-  return ExprHasName(OriginExpr, "avio_read", C) &&
+-         !ExprHasName(OriginExpr, "ffio_read_size", C);
++  return isNamedCall(Call, "avio_read");
+ }
+ 
+ bool SAGenTestChecker::isMemcmpCall(const CallEvent &Call,
+                                     CheckerContext &C) const {
+-  const Expr *OriginExpr = Call.getOriginExpr();
+-  if (!OriginExpr)
+-    return false;
+-  return ExprHasName(OriginExpr, "memcmp", C);
++  return isNamedCall(Call, "memcmp");
++}
++
++bool SAGenTestChecker::isSafeExactReadCall(const CallEvent &Call,
++                                           CheckerContext &C) const {
++  return isNamedCall(Call, "ffio_read_size");
++}
++
++const MemRegion *SAGenTestChecker::getBaseRegion(const MemRegion *MR) const {
++  if (!MR)
++    return nullptr;
++
++  const MemRegion *Cur = MR;
++  while (const auto *SR = dyn_cast<SubRegion>(Cur)) {
++    const MemRegion *Super = SR->getSuperRegion();
++    if (!Super)
++      break;
++    Cur = Super;
++  }
++  return Cur ? Cur : MR;
+ }
+ 
+ const MemRegion *
+@@ -184,12 +229,70 @@   if (!UseMR || !TrackedMR || !S)
+     return true;
+ 
+-  // The key false-positive pattern: same aggregate base, but different sibling
+-  // fields/subregions (e.g. ape->md5 tracked, but ape->frames[i].size used).
+   if (!regionsOverlapOrSubregion(UseMR, TrackedMR))
+     return true;
+ 
++  // Do not warn on mere pointer propagation / declaration initialization such as:
++  //   cursor = bp.str;
++  // This is not a semantic consumption of the buffer contents.
++  if (const auto *DS = dyn_cast<DeclStmt>(S)) {
++    for (const Decl *D : DS->decls()) {
++      if (const auto *VD = dyn_cast<VarDecl>(D)) {
++        if (const Expr *Init = VD->getInit()) {
++          const MemRegion *InitMR = getTrackedRegionFromExpr(Init, C);
++          if (InitMR && regionsOverlapOrSubregion(InitMR, TrackedMR))
++            return true;
++        }
++      }
++    }
++  }
++
++  if (const auto *BO = dyn_cast<BinaryOperator>(S)) {
++    if (BO->isAssignmentOp()) {
++      const Expr *RHS = BO->getRHS();
++      const MemRegion *RHSMR = getTrackedRegionFromExpr(RHS, C);
++      if (RHSMR && regionsOverlapOrSubregion(RHSMR, TrackedMR))
++        return true;
++    }
++  }
++
+   return false;
++}
++
++bool SAGenTestChecker::isBufferConsumingStmt(const Stmt *S,
++                                             const MemRegion *UseMR,
++                                             const MemRegion *TrackedMR,
++                                             CheckerContext &C) const {
++  if (!S || !UseMR || !TrackedMR)
++    return false;
++
++  if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(S)) {
++    const MemRegion *BaseMR = getTrackedRegionFromExpr(ASE->getBase(), C);
++    if (BaseMR && isTrackedUse(BaseMR, TrackedMR))
++      return true;
++  }
++
++  if (isa<MemberExpr>(S))
++    return isTrackedUse(UseMR, TrackedMR);
++
++  if (isa<UnaryOperator>(S) || isa<ImplicitCastExpr>(S) || isa<CStyleCastExpr>(S))
++    return isTrackedUse(UseMR, TrackedMR);
++
++  // For plain loads, be conservative and require the location to be a subregion
++  // of the tracked buffer rather than the buffer pointer object itself.
++  if (UseMR != TrackedMR && isTrackedUse(UseMR, TrackedMR))
++    return true;
++
++  return false;
++}
++
++bool SAGenTestChecker::isCheckedRegion(const MemRegion *MR,
++                                       CheckerContext &C) const {
++  if (!MR)
++    return false;
++
++  ProgramStateRef State = C.getState();
++  return State->contains<CheckedShortReadRegions>(MR);
+ }
+ 
+ void SAGenTestChecker::clearTrackedRegion(const MemRegion *MR,
+@@ -198,10 +301,19 @@     return;
+ 
+   ProgramStateRef State = C.getState();
+-  if (!State->get<ShortReadDstMap>(MR))
+-    return;
+-
+   State = State->remove<ShortReadDstMap>(MR);
++  State = State->remove<CheckedShortReadRegions>(MR);
++  C.addTransition(State);
++}
++
++void SAGenTestChecker::markCheckedRegion(const MemRegion *MR,
++                                         CheckerContext &C) const {
++  if (!MR)
++    return;
++
++  ProgramStateRef State = C.getState();
++  if (State->get<ShortReadDstMap>(MR))
++    State = State->add<CheckedShortReadRegions>(MR);
+   C.addTransition(State);
+ }
+ 
+@@ -221,6 +333,17 @@ 
+ void SAGenTestChecker::checkPostCall(const CallEvent &Call,
+                                      CheckerContext &C) const {
++  // Exact-size helper is safe: if it targets a tracked region, clear it.
++  if (isSafeExactReadCall(Call, C)) {
++    if (Call.getNumArgs() >= 2) {
++      if (const Expr *DstE = Call.getArgExpr(1)) {
++        if (const MemRegion *MR = getTrackedRegionFromExpr(DstE, C))
++          clearTrackedRegion(MR, C);
++      }
++    }
++    return;
++  }
++
+   if (!isAvioReadCall(Call, C))
+     return;
+ 
+@@ -239,11 +362,9 @@   if (!DstMR)
+     return;
+ 
+-  llvm::APSInt RequestedSize;
+-  (void)EvaluateExprToInt(RequestedSize, CE->getArg(2), C);
+-
+   ProgramStateRef State = C.getState();
+   State = State->set<ShortReadDstMap>(DstMR, CE);
++  State = State->remove<CheckedShortReadRegions>(DstMR);
+   C.addTransition(State);
+ }
+ 
+@@ -256,7 +377,7 @@   if (DirectCall && isAvioReadCall(DirectCall, C)) {
+     const MemRegion *DstMR = getTrackedRegionFromAvioReadCall(DirectCall, C);
+     if (DstMR)
+-      clearTrackedRegion(DstMR, C);
++      markCheckedRegion(DstMR, C);
+     return;
+   }
+ 
+@@ -272,33 +393,33 @@   if (!DstMR)
+     return;
+ 
+-  clearTrackedRegion(DstMR, C);
++  markCheckedRegion(DstMR, C);
+ }
+ 
+ void SAGenTestChecker::checkPreCall(const CallEvent &Call,
+                                     CheckerContext &C) const {
+-  if (!isMemcmpCall(Call, C))
+-    return;
+-
+-  if (Call.getNumArgs() < 2)
+-    return;
+-
+-  ProgramStateRef State = C.getState();
+-
+-  for (unsigned Idx = 0; Idx < 2; ++Idx) {
++  ProgramStateRef State = C.getState();
++
++  auto HandleConsumerArg = [&](unsigned Idx) -> bool {
++    if (Idx >= Call.getNumArgs())
++      return false;
++
+     const Expr *ArgE = Call.getArgExpr(Idx);
+     if (!ArgE)
+-      continue;
++      return false;
+ 
+     const MemRegion *UseMR = getTrackedRegionFromExpr(ArgE, C);
+     if (!UseMR)
+-      continue;
++      return false;
+ 
+     for (const auto &Entry : State->get<ShortReadDstMap>()) {
+       const MemRegion *TrackedMR = Entry.first;
+       if (!TrackedMR)
+         continue;
+ 
++      if (isCheckedRegion(TrackedMR, C))
++        continue;
++
+       if (!isTrackedUse(UseMR, TrackedMR))
+         continue;
+ 
+@@ -307,13 +428,34 @@ 
+       reportBug(TrackedMR, Call.getOriginExpr(),
+                 C, "buffer read by avio_read may be partially uninitialized");
++      return true;
++    }
++
++    return false;
++  };
++
++  if (isMemcmpCall(Call, C)) {
++    if (HandleConsumerArg(0))
+       return;
++    if (HandleConsumerArg(1))
++      return;
++    return;
++  }
++
++  llvm::SmallVector<unsigned, 4> DerefParams;
++  if (functionKnownToDeref(Call, DerefParams)) {
++    for (unsigned ParamIdx : DerefParams) {
++      if (HandleConsumerArg(ParamIdx))
++        return;
+     }
+   }
+ }
+ 
+ void SAGenTestChecker::checkLocation(SVal Loc, bool IsLoad, const Stmt *S,
+                                      CheckerContext &C) const {
++  if (!IsLoad || !S)
++    return;
++
+   ProgramStateRef State = C.getState();
+ 
+   const MemRegion *UseMR = Loc.getAsRegion();
+@@ -325,33 +467,21 @@     if (!TrackedMR)
+       continue;
+ 
++    if (isCheckedRegion(TrackedMR, C))
++      continue;
++
+     if (!isTrackedUse(UseMR, TrackedMR))
+       continue;
+ 
+     if (isFalsePositive(UseMR, TrackedMR, S, C))
+       continue;
+ 
+-    if (IsLoad) {
+-      reportBug(TrackedMR, S, C,
+-                "buffer read by avio_read may be partially uninitialized");
+-      return;
+-    }
+-
+-    if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(S)) {
+-      if (!ASE->getBase())
+-        return;
+-
+-      const MemRegion *BaseMR = getTrackedRegionFromExpr(ASE->getBase(), C);
+-      if (!BaseMR)
+-        return;
+-
+-      if (isTrackedUse(BaseMR, TrackedMR) &&
+-          !isFalsePositive(BaseMR, TrackedMR, S, C)) {
+-        reportBug(TrackedMR, S, C,
+-                  "buffer read by avio_read may be partially uninitialized");
+-        return;
+-      }
+-    }
++    if (!isBufferConsumingStmt(S, UseMR, TrackedMR, C))
++      continue;
++
++    reportBug(TrackedMR, S, C,
++              "buffer read by avio_read may be partially uninitialized");
++    return;
+   }
+ }
+ 

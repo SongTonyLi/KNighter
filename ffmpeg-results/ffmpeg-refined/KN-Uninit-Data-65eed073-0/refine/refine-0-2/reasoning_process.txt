@@ -1,0 +1,57 @@
+Refinment Plan:
+1. Root cause
+   - The checker tracks any destination buffer passed to `avio_read()` as “possibly short-read”.
+   - It clears that state too aggressively and inaccurately:
+     - `checkBranchCondition()` clears merely because a branch condition mentions the return variable associated with an `avio_read()`, without proving the condition enforces a full read.
+   - At the same time, it reports on any later load from the buffer in `checkLocation()`, regardless of whether the path already established `ret == requested_size`.
+   - Worse, `getAvioReadCallFromRetVar()` only works when the condition references a variable whose initializer is directly `avio_read(...)`. In the false-positive example:
+     ```c
+     ret = avio_read(...);
+     if (ret < 0) return ret;
+     if (ret != frame_size) return AVERROR(EIO);
+     use(buffer);
+     ```
+     `ret` is assigned after declaration, so the checker never recognizes that the branch conditions validate the `avio_read()` result. Therefore the destination remains tracked and a later load is reported incorrectly.
+
+2. Fix strategy
+   - Track more precise metadata for each `avio_read()` destination:
+     - destination base region,
+     - return value symbol of the call,
+     - requested-size symbol/value if available.
+   - On branch conditions, only clear the tracked state when the condition proves the return value equals the requested size on the current path.
+   - Support both:
+     - direct condition on the call expression, e.g. `if (avio_read(...) != N)`
+     - condition on a variable assigned from `avio_read(...)`, e.g. `ret = avio_read(...); if (ret != N) ...`
+   - Add a small assignment map from return variable region to the most recent `avio_read()` destination region. This is exactly the missing state causing the FP.
+   - Keep reporting when:
+     - a buffer from `avio_read()` is used with no full-read validation,
+     - or only negative/error checks are done (`ret < 0`) but short reads are still possible.
+   - Preserve true-positive detection for memcmp and ordinary loads.
+
+3. Edge cases considered
+   - `if (ret != size) return ...; use(buf);`
+     - On the fallthrough path, analyzer assumes `ret == size`; checker clears state.
+   - `if (ret == size) use(buf);`
+     - On the taken branch path, analyzer assumes equality; checker clears state.
+   - `if (ret < 0) return ...; use(buf);`
+     - Not enough; state remains tracked, so true positive still reported.
+   - `if (ret <= 0)` / `if (ret > 0)`
+     - Not sufficient for full read; state remains.
+   - Variable assigned after declaration:
+     - handled via `checkBind`.
+   - Multiple reads into same buffer:
+     - latest read re-tracks the buffer.
+   - Writes to the buffer after read:
+     - current checker still reports conservatively on later loads. We only clear on proven full-read validation. This avoids masking real bugs.
+   - Clang-18 compatibility:
+     - Uses standard ProgramState maps and APIs available in Clang 18.
+     - Avoids unsupported data structures in ProgramState by storing regions/symbols only.
+
+4. Regression risk
+   - Main behavior change is that branch conditions no longer blindly clear tracking.
+   - This should reduce false negatives and eliminate this specific false positive.
+   - The checker still detects the target buggy code because those buggy examples do not prove `ret == requested_size` before use.
+
+Refined Code:
+```cpp
+```

@@ -1,0 +1,61 @@
+Refinment Plan:
+1. Root cause  
+   The checker tracks every destination buffer passed to `avio_read()` in `checkPostCall()`, but it clears that tracking too aggressively and too imprecisely in `checkBranchCondition()`. The current logic treats essentially any branch that mentions a variable initialized from `avio_read()` as a sufficient validation and clears the buffer state. At the same time, it does not model the actual success condition needed to suppress diagnostics: a dominating check that guarantees the return value is at least the requested size.
+
+   However, the reported false positive in `oma_read_header()` is the opposite symptom: the checker still reports on a path where the code already checked:
+
+   ```c
+   ret = avio_read(..., buf, EA3_HEADER_SIZE);
+   if (ret < EA3_HEADER_SIZE) return ...;
+   // use buf
+   ```
+
+   The reason is that `getAvioReadCallFromRetVar()` only works for declarations whose initializer is the `avio_read()` call:
+   ```c
+   int ret = avio_read(...);
+   ```
+   but not for assignment form:
+   ```c
+   ret = avio_read(...);
+   if (ret < EA3_HEADER_SIZE) ...
+   ```
+   In the false positive, the read result is assigned into an already-declared `ret`, so the checker never associates `ret` with the tracked buffer and therefore cannot discharge the warning when seeing the branch condition.
+
+2. Fix strategy  
+   Introduce proper state tracking:
+   - Track each destination region written by `avio_read()` together with:
+     - the associated return symbol, if any,
+     - the requested size, if known,
+     - the originating call expression.
+   - Track assignments from `avio_read()` return values into variables using `checkBind()`.
+   - In `checkBranchCondition()`, recognize branch predicates that prove the read was full enough, specifically conditions involving the tracked return variable and requested size:
+     - `ret < N`, `ret <= N-1`, `ret != N` patterns on the error-return branch should discharge the state on the continuation path after the branch.
+     - More generally, detect when the condition references the tracked return variable and compares against the requested-size expression, then conservatively clear only when the condition shape is one of the standard short-read guards.
+   - Also support direct-branch form:
+     ```c
+     if (avio_read(pb, buf, 8) < 8) return ...;
+     ```
+   - Keep reporting for true positives such as:
+     ```c
+     avio_read(pb, buf, 8);
+     memcmp(buf, ...);   // report
+     ```
+
+3. Edge cases and regressions
+   - Do not clear tracking merely because the return variable appears in some branch. Only clear on recognized full-read guard patterns.
+   - Handle both declaration-init and assignment forms.
+   - Handle stack arrays and heap buffers equally by tracking destination `MemRegion *`.
+   - Remain conservative when requested size is not evaluatable; do not suppress in unknown cases.
+   - Do not remove any includes.
+   - Keep Clang-18 compatibility by using `REGISTER_MAP_WITH_PROGRAMSTATE`/`REGISTER_SET_WITH_PROGRAMSTATE` and simple immutable-data patterns.
+
+4. Key design choice  
+   Since `REGISTER_MAP_WITH_PROGRAMSTATE` is easier with pointer-like values than custom structs, the checker uses:
+   - `ShortReadDstMap : MemRegion* -> const CallExpr*`
+   - `RetSymToDstMap : SymbolRef -> MemRegion*`
+
+   The call expression is then used to recover the requested size and destination argument when needed. This keeps the state simple and compatible.
+
+Refined Code:
+```cpp
+```

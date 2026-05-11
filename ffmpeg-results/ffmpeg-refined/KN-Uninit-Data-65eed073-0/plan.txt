@@ -1,0 +1,131 @@
+```text
+1. **Customize Program State**
+   - Define one program-state map to remember buffers that were filled by a potentially short read and are still unsafe to consume:
+     - `REGISTER_MAP_WITH_PROGRAMSTATE(ShortReadDstMap, const MemRegion *, const CallExpr *)`
+   - The key should be the destination buffer region passed to `avio_read()`.
+   - The value can be the corresponding call expression (or a simple flag if preferred). Keeping the `CallExpr *` is useful for diagnostics or future refinement, but a boolean is also sufficient.
+   - No alias map is necessary for a first version. The target pattern in the patch uses direct buffers (`header`, `version`, `value`) and simple direct uses afterwards.
+
+2. **Choose Callback Functions**
+   - Use:
+     - `checkPostCall`
+     - `checkBranchCondition`
+     - `checkPreCall`
+     - `checkLocation`
+   - These are enough to track the unsafe source (`avio_read`), clear it when properly checked, and report when the buffer is consumed.
+
+3. **Track calls to `avio_read()` in `checkPostCall`**
+   - Identify calls whose callee name is exactly `avio_read`.
+   - Only handle the normal 3-argument form:
+     - arg0: AVIO context
+     - arg1: destination buffer
+     - arg2: requested size
+   - Extract:
+     - the destination expression from argument 1,
+     - the destination `MemRegion` using `getMemRegionFromExpr`,
+     - the requested size from argument 2 using `EvaluateExprToInt` if possible.
+   - If no destination region is available, stop.
+   - Mark the destination region in `ShortReadDstMap` as “unsafe after partial read”.
+   - Do this regardless of whether the requested size is constant; the bug pattern is specifically that `avio_read()` may short-read and the result is ignored.
+   - Do **not** mark buffers for `ffio_read_size()`, because that helper already enforces full-read-or-error behavior.
+
+4. **Clear the unsafe state when the return value is checked in `checkBranchCondition`**
+   - This is the most important pruning step.
+   - Inspect branch conditions and look for comparisons involving an `avio_read()` call.
+   - Typical safe patterns to recognize:
+     - `if (avio_read(...) < requested_size)`
+     - `if (avio_read(...) != requested_size)`
+     - `if (avio_read(...) <= 0)`
+     - `if (ret < 0)` / `if (ret != requested_size)` where `ret` was assigned from `avio_read(...)`
+   - Keep the implementation simple:
+     - First, directly handle branch conditions that contain a `CallExpr` to `avio_read`.
+       - Use `findSpecificTypeInChildren<CallExpr>(Condition)` and verify the callee name.
+       - If found, get its destination buffer region from arg1 and remove it from `ShortReadDstMap`.
+     - Second, handle the common two-step pattern:
+       - `ret = avio_read(...);`
+       - `if (ret < 0)` or `if (ret != size)`
+     - For this, inspect the condition for a `DeclRefExpr` to a local variable, then walk upward or nearby to find whether that variable was initialized/assigned from an `avio_read()` call.
+       - A simple implementation can use `findSpecificTypeInChildren<DeclRefExpr>(Condition)` and then inspect the enclosing statement structure or the variable initializer if it is a declaration like `int ret = avio_read(...);`.
+       - If that referenced variable comes from `avio_read(...)`, remove the destination region for that call from `ShortReadDstMap`.
+   - Be intentionally conservative:
+     - If there is a branch condition clearly checking the `avio_read` result, treat the buffer as safe afterwards.
+     - This may miss some path distinctions, but keeps the checker simple and aligned with the requested pattern.
+
+5. **Report direct dangerous library consumption in `checkPreCall`**
+   - Intercept calls that consume buffer contents in a way matching the patch:
+     - `memcmp`
+     - optionally `strncmp`, `strcmp`-like routines if desired, but `memcmp` is the key target from the patch.
+   - For `memcmp`, inspect both compared buffer arguments (arg0 and arg1).
+   - For each argument:
+     - get its `MemRegion` via `getMemRegionFromExpr`,
+     - if that region is present in `ShortReadDstMap`, report a bug.
+   - This covers the `memcmp(version, MLV_VERSION, 5)` case directly.
+
+6. **Report unsafe field/index/byte consumption in `checkLocation`**
+   - This callback detects reads from a buffer after unchecked `avio_read()`.
+   - Only care about loads (`IsLoad == true`).
+   - Retrieve the accessed region `Loc`, and determine its base/super region.
+     - If the load is from an element/field/subregion of a tracked destination buffer, treat it as a use of that buffer.
+   - If the base region is in `ShortReadDstMap`, report a bug.
+   - This catches cases like:
+     - `header[0]`
+     - `header[1]`
+     - `value[chunk_size - 1]`
+     - similar parsing and offset calculations after the unchecked read
+   - This callback is what detects the dss and dtshd patterns:
+     - byte inspection for control/data parsing,
+     - writing a terminator into a heap buffer after assuming the full read succeeded.
+
+7. **How to match “subregion belongs to tracked buffer”**
+   - In `checkLocation`, the loaded/stored location may be an element region, not the exact region originally obtained from the destination expression.
+   - Normalize by walking to the base region before lookup.
+   - Compare the normalized/base region against keys in `ShortReadDstMap`.
+   - This is necessary for array-element accesses like `header[0]` and `value[chunk_size - 1]`.
+
+8. **Bug reporting**
+   - Create one `BugType`, for example:
+     - name: `"Unchecked avio_read result"`
+     - category: `"API"`
+   - Emit a short message, such as:
+     - `"buffer read by avio_read may be partially uninitialized"`
+   - Report from:
+     - `checkPreCall` when the unsafe buffer reaches `memcmp`,
+     - `checkLocation` when the unsafe buffer is read for parsing/indexing/metadata handling.
+   - Use `generateNonFatalErrorNode()` and `std::make_unique<PathSensitiveBugReport>`.
+
+9. **Important implementation details / heuristics**
+   - Only target `avio_read`, not all read APIs.
+   - Explicitly exclude `ffio_read_size`.
+   - Do not try to prove the exact byte count relationship in the first version.
+     - The patch and bug pattern are about ignoring the return value entirely.
+     - So it is enough to:
+       - mark buffer unsafe after `avio_read`,
+       - clear it if there is an obvious branch check of that read result,
+       - warn on later consumption.
+   - Prefer callee-name matching via `Call.getCalleeIdentifier()->getName()`.
+   - No need for AST-only checker callbacks; path-sensitive callbacks are enough.
+
+10. **Recommended reporting conditions to keep the checker precise**
+   - Report only if:
+     - the buffer was marked by `avio_read`,
+     - and there was no observed branch check clearing it,
+     - and the subsequent use is a real consumption:
+       - load from buffer contents (`checkLocation`, load only), or
+       - `memcmp` (`checkPreCall`).
+   - Do not report merely on pointer passing unless it is clearly a consuming API like `memcmp`.
+
+11. **Overall checker flow**
+   - `checkPostCall(avio_read)`:
+     - mark destination buffer region as unsafe.
+   - `checkBranchCondition(...)`:
+     - if condition checks the `avio_read` result, clear the corresponding destination region.
+   - `checkPreCall(memcmp)`:
+     - if either compared argument is a tracked unsafe buffer, report.
+   - `checkLocation(load)`:
+     - if reading from a tracked unsafe buffer or one of its subregions, report.
+
+This design directly covers the three patched cases:
+- `dss.c`: unchecked `avio_read(..., header, ...)` followed by `header[0]` / `header[1]`
+- `mlvdec.c`: unchecked `avio_read(..., version, 8)` followed by `memcmp(version, ...)`
+- `dtshddec.c`: unchecked `avio_read(..., value, chunk_size)` followed by `value[chunk_size - 1] = 0` and metadata use
+```

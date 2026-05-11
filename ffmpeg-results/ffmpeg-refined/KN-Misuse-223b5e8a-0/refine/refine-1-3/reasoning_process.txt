@@ -1,0 +1,50 @@
+Refinment Plan:
+1. Root cause of the false positive
+   - The checker currently tracks any local floating variable initialized to `0` in `checkPostStmt`.
+   - It keeps that variable marked as a possible “aggregate denominator” unless it sees a definitely non-zero reassignment.
+   - In `checkPreStmt`, it reports on any floating division whose denominator is a tracked variable.
+   - This is too broad: it does not require evidence that the variable is actually an accumulated/computed aggregate, and it does not require that the denominator of the division is that aggregate itself in the target pattern sense.
+   - As a result, ordinary locals initialized to zero and later used in unrelated arithmetic can be misclassified.
+
+2. Why the reported case is a false positive
+   - The reported site is:
+     ```c
+     double delta = (limit / peak - s->att) / buffer_size * channels;
+     ```
+   - This does not match the target pattern:
+     - `buffer_size` is not a floating aggregate variable initialized to zero and incrementally accumulated from runtime contributions.
+     - The actually interesting floating denominator `peak` is guarded by `if (peak > limit)` and `limit > 0`, so `peak` is non-zero on that path.
+   - The checker needs to become pattern-specific instead of “any zero-initialized float later used as divisor”.
+
+3. Specific fix strategy
+   - Introduce richer state tracking for candidate aggregate denominator variables.
+   - Track only locals of real floating type that:
+     - are initialized to zero, and
+     - later participate in self-accumulation or self-computation patterns such as:
+       - `x += y`
+       - `x = x + y`
+       - `x = y + x`
+   - Only report when:
+     - a division denominator is a tracked aggregate candidate, and
+     - the denominator variable has actually been seen in an aggregate update pattern.
+   - Preserve the existing guard handling, but make it less destructive:
+     - only clear/report-suppress the variable when the condition actually acts as a zero-check on that variable.
+   - Add a helper `isFalsePositive(...)` to reject divisions that are not directly dividing by the tracked aggregate variable.
+
+4. Edge cases / regressions considered
+   - Still detects the target buggy pattern:
+     - `float norm_fac = 0.0f;`
+     - `norm_fac += band->norm_fac;`
+     - later `1.0f / norm_fac;`
+   - Avoids warning on variables merely initialized to zero but never used as aggregate accumulators.
+   - Handles `x = x + y` and `x = y + x`, not just `+=`.
+   - Continues to support simple guards like:
+     - `if (norm_fac)`
+     - `if (norm_fac != 0)`
+     - `if (0 != norm_fac)`
+   - Keeps Clang-18 compatibility by using standard checker callbacks and `REGISTER_*_WITH_PROGRAMSTATE`.
+   - Does not remove any existing includes.
+
+Refined Code:
+```cpp
+```

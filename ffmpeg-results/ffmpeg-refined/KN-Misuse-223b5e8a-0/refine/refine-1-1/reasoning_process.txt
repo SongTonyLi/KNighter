@@ -1,0 +1,59 @@
+Refinment Plan:
+1. Root cause  
+   The checker tracks any local floating-point variable initialized to `0` as a potential “aggregate denominator”, and it reports whenever that variable later appears as a floating-point divisor. That is too broad.
+
+   In the false positive:
+   ```c
+   double b0 = 0, ib0 = 0;
+   ...
+   b0 = (A+1) - (A-1)*cw0 + tmp;
+   ib0 = 1 / b0;
+   ```
+   `b0` is not an accumulated aggregate at all. It is just a normal temporary initialized to zero and then overwritten by a direct expression before use. The current checker loses this distinction because:
+   - `checkPostStmt` marks all local FP vars initialized to zero,
+   - `checkBind` only removes tracking when it can prove the assigned expression is a non-zero constant,
+   - symbolic/direct computed expressions keep the variable tracked,
+   - `checkBranchCondition` also removes tracking too aggressively and without branch sensitivity.
+
+2. Fix strategy  
+   The checker should detect the intended pattern only:
+   - a floating-point variable starts at zero,
+   - it is later updated through accumulation/self-update, such as:
+     - `x += y`
+     - `x = x + y`
+     - `x = y + x`
+   - and then used as divisor without a zero guard.
+
+   So the repair is:
+   - track variables as aggregate candidates only after observing a self-referential additive update,
+   - stop treating plain initialization-to-zero alone as sufficient,
+   - stop reporting on direct-expression denominators like `b0 = expr; 1 / b0`,
+   - preserve detection for the target buggy code where `norm_fac += band->norm_fac;` is the key signal.
+
+3. State tracking improvements  
+   Use program state maps:
+   - `ZeroInitFloatMap`: remembers local FP vars that were initialized to zero and are still candidates.
+   - `AggregateDenomMap`: remembers vars that have actually become aggregate denominators via self-additive accumulation.
+   - `GuardedDenomMap`: remembers vars proven guarded by a branch condition on the current path.
+
+4. Branch handling  
+   Improve guard logic:
+   - recognize conditions like `if (x)`, `if (x != 0)`, `if (0 != x)`, `if (x == 0)`.
+   - only mark as guarded when the divisor is safe on the taken path:
+     - `if (x)` / `if (x != 0)` => then-branch guarded
+     - `if (x == 0)` => else-branch guarded
+   This is implemented in `evalAssume`, which is the correct path-sensitive hook.
+
+5. Regression considerations  
+   This avoids the shown FP because `b0` is never accumulated from itself.
+   It still detects the target bug because:
+   - `norm_fac` is zero-initialized,
+   - later updated by `norm_fac += band->norm_fac;`,
+   - then divided without a guard.
+   Also covers equivalent forms:
+   - `x = x + y`
+   - `x = y + x`
+
+Refined Code:
+```cpp
+```

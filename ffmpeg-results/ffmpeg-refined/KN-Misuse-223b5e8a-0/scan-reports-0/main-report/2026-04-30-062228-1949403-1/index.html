@@ -1,0 +1,223 @@
+<html>
+<head>
+<title>ffmpeg - scan-build results</title>
+<link type="text/css" rel="stylesheet" href="scanview.css"/>
+<script src="sorttable.js"></script>
+<script language='javascript' type="text/javascript">
+function SetDisplay(RowClass, DisplayVal)
+{
+  var Rows = document.getElementsByTagName("tr");
+  for ( var i = 0 ; i < Rows.length; ++i ) {
+    if (Rows[i].className == RowClass) {
+      Rows[i].style.display = DisplayVal;
+    }
+  }
+}
+
+function CopyCheckedStateToCheckButtons(SummaryCheckButton) {
+  var Inputs = document.getElementsByTagName("input");
+  for ( var i = 0 ; i < Inputs.length; ++i ) {
+    if (Inputs[i].type == "checkbox") {
+      if(Inputs[i] != SummaryCheckButton) {
+        Inputs[i].checked = SummaryCheckButton.checked;
+        Inputs[i].onclick();
+      }
+    }
+  }
+}
+
+function returnObjById( id ) {
+    if (document.getElementById)
+        var returnVar = document.getElementById(id);
+    else if (document.all)
+        var returnVar = document.all[id];
+    else if (document.layers)
+        var returnVar = document.layers[id];
+    return returnVar;
+}
+
+var NumUnchecked = 0;
+
+function ToggleDisplay(CheckButton, ClassName) {
+  if (CheckButton.checked) {
+    SetDisplay(ClassName, "");
+    if (--NumUnchecked == 0) {
+      returnObjById("AllBugsCheck").checked = true;
+    }
+  }
+  else {
+    SetDisplay(ClassName, "none");
+    NumUnchecked++;
+    returnObjById("AllBugsCheck").checked = false;
+  }
+}
+</script>
+<!-- SUMMARYENDHEAD -->
+</head>
+<body>
+<h1>ffmpeg - scan-build results</h1>
+
+<table>
+<tr><th>User:</th><td>cc@mingkai-gigaio</td></tr>
+<tr><th>Working Directory:</th><td>/home/cc/ai2sec/KNighter/ffmpeg</td></tr>
+<tr><th>Command Line:</th><td>make -j32</td></tr>
+<tr><th>Clang Version:</th><td>clang version 18.1.8 (https://github.com/ise-uiuc/KNighter.git f4e834b3074104001c31c5c262ab11e28d1a8e38)
+</td></tr>
+<tr><th>Date:</th><td>Thu Apr 30 06:22:28 2026</td></tr>
+</table>
+<h2>Bug Summary</h2><table>
+<thead><tr><td>Bug Type</td><td>Quantity</td><td class="sorttable_nosort">Display?</td></tr></thead>
+<tr style="font-weight:bold"><td class="SUMM_DESC">All Bugs</td><td class="Q">44</td><td><center><input type="checkbox" id="AllBugsCheck" onClick="CopyCheckedStateToCheckButtons(this);" checked/></center></td></tr>
+<tr><th>Possible division by zero</th><th colspan=2></th></tr>
+<tr><td class="SUMM_DESC">Possible division by zero</td><td class="Q">44</td><td><center><input type="checkbox" onClick="ToggleDisplay(this,'bt_possible_division_by_zero_possible_division_by_zero');" checked/></center></td></tr>
+</table>
+<h2>Reports</h2>
+
+<table class="sortable" style="table-layout:automatic">
+<thead><tr>
+  <td>Bug Group</td>
+  <td class="sorttable_sorted">Bug Type<span id="sorttable_sortfwdind">&nbsp;&#x25BE;</span></td>
+  <td>File</td>
+  <td>Function/Method</td>
+  <td class="Q">Line</td>
+  <td class="Q">Path Length</td>
+  <td class="sorttable_nosort"></td>
+  <!-- REPORTBUGCOL -->
+</tr></thead>
+<tbody>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_aspectralstats.c</td><td class="DESC">spectral_spread</td><td class="Q">283</td><td class="Q">21</td><td><a href="report-04cf79.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-04cf79.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_alimiter.c</td><td class="DESC">filter_frame</td><td class="Q">181</td><td class="Q">11</td><td><a href="report-085153.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-085153.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/avf_avectorscope.c</td><td class="DESC">filter_frame</td><td class="Q">358</td><td class="Q">15</td><td><a href="report-0aa16d.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-0aa16d.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_anlmdn.c</td><td class="DESC">filter_channel</td><td class="Q">260</td><td class="Q">9</td><td><a href="report-0c3687.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-0c3687.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avcodec/ratecontrol.c</td><td class="DESC">init_pass2</td><td class="Q">432</td><td class="Q">28</td><td><a href="report-16377f.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-16377f.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avcodec/ratecontrol.c</td><td class="DESC">adaptive_quantization</td><td class="Q">858</td><td class="Q">34</td><td><a href="report-22548f.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-22548f.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_aspectralstats.c</td><td class="DESC">spectral_flatness</td><td class="Q">352</td><td class="Q">29</td><td><a href="report-2b6677.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-2b6677.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/perlin.c</td><td class="DESC">ff_perlin_get</td><td class="Q">222</td><td class="Q">3</td><td><a href="report-2d717c.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-2d717c.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/vf_readeia608.c</td><td class="DESC">extract_line</td><td class="Q">395</td><td class="Q">16</td><td><a href="report-334cd8.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-334cd8.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/vf_vif.c</td><td class="DESC">compute_vif2</td><td class="Q">389</td><td class="Q">17</td><td><a href="report-429959.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-429959.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_alimiter.c</td><td class="DESC">filter_frame</td><td class="Q">203</td><td class="Q">19</td><td><a href="report-44053e.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-44053e.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avcodec/qdm2.c</td><td class="DESC">synthfilt_build_sb_samples</td><td class="Q">833</td><td class="Q">36</td><td><a href="report-4c1d73.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-4c1d73.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>swresample/resample.c</td><td class="DESC">build_filter</td><td class="Q">118</td><td class="Q">41</td><td><a href="report-4eeafa.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-4eeafa.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avcodec/ratecontrol.c</td><td class="DESC">adaptive_quantization</td><td class="Q">883</td><td class="Q">81</td><td><a href="report-51daca.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-51daca.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/afir_template.c</td><td class="DESC">ir_gain_float</td><td class="Q">67</td><td class="Q">19</td><td><a href="report-5f6f5e.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-5f6f5e.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>swresample/resample.c</td><td class="DESC">build_filter</td><td class="Q">104</td><td class="Q">41</td><td><a href="report-6a2177.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-6a2177.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/vf_ssim360.c</td><td class="DESC">ssim360_tape</td><td class="Q">713</td><td class="Q">15</td><td><a href="report-6d5fdc.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-6d5fdc.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/vf_bm3d.c</td><td class="DESC">final_block_filtering</td><td class="Q">598</td><td class="Q">11</td><td><a href="report-6e0f3b.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-6e0f3b.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/vf_bm3d.c</td><td class="DESC">do_output16</td><td class="Q">678</td><td class="Q">7</td><td><a href="report-6e7526.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-6e7526.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_aemphasis.c</td><td class="DESC">set_highshelf_rbj</td><td class="Q">170</td><td class="Q">20</td><td><a href="report-7e1149.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-7e1149.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/vf_ssim360.c</td><td class="DESC">ssim360_plane_8bit</td><td class="Q">538</td><td class="Q">3</td><td><a href="report-7f8fd2.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-7f8fd2.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_alimiter.c</td><td class="DESC">filter_frame</td><td class="Q">203</td><td class="Q">19</td><td><a href="report-809268.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-809268.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/vf_readeia608.c</td><td class="DESC">extract_line</td><td class="Q">396</td><td class="Q">17</td><td><a href="report-8444c8.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-8444c8.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_afftdn.c</td><td class="DESC">process_frame</td><td class="Q">462</td><td class="Q">29</td><td><a href="report-8655bf.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-8655bf.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/vf_convolve.c</td><td class="DESC">prepare_impulse</td><td class="Q">631</td><td class="Q">7</td><td><a href="report-88cfc4.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-88cfc4.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avcodec/aaccoder.c</td><td class="DESC">search_for_pns</td><td class="Q">617</td><td class="Q">32</td><td><a href="report-8e1c98.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-8e1c98.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_aspectralstats.c</td><td class="DESC">spectral_centroid</td><td class="Q">268</td><td class="Q">19</td><td><a href="report-8e62db.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-8e62db.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_aspectralstats.c</td><td class="DESC">spectral_skewness</td><td class="Q">304</td><td class="Q">23</td><td><a href="report-98c863.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-98c863.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_alimiter.c</td><td class="DESC">filter_frame</td><td class="Q">261</td><td class="Q">20</td><td><a href="report-9d39cf.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-9d39cf.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_alimiter.c</td><td class="DESC">filter_frame</td><td class="Q">252</td><td class="Q">29</td><td><a href="report-a66d98.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-a66d98.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_dynaudnorm.c</td><td class="DESC">init_gaussian_filter</td><td class="Q">299</td><td class="Q">8</td><td><a href="report-a92401.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-a92401.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/vf_ssim360.c</td><td class="DESC">ssim360_plane_16bit</td><td class="Q">506</td><td class="Q">3</td><td><a href="report-aadcb0.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-aadcb0.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>swresample/resample.c</td><td class="DESC">build_filter</td><td class="Q">111</td><td class="Q">41</td><td><a href="report-ac678c.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-ac678c.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_aspectralstats.c</td><td class="DESC">spectral_crest</td><td class="Q">367</td><td class="Q">31</td><td><a href="report-b1f42a.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-b1f42a.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_aspectralstats.c</td><td class="DESC">spectral_entropy</td><td class="Q">334</td><td class="Q">27</td><td><a href="report-b73c06.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-b73c06.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_aspectralstats.c</td><td class="DESC">spectral_kurtosis</td><td class="Q">320</td><td class="Q">25</td><td><a href="report-b9736d.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-b9736d.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/vf_bm3d.c</td><td class="DESC">do_output</td><td class="Q">651</td><td class="Q">7</td><td><a href="report-cdd85b.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-cdd85b.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/afir_template.c</td><td class="DESC">ir_gain_double</td><td class="Q">67</td><td class="Q">19</td><td><a href="report-d39166.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-d39166.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_aspectralstats.c</td><td class="DESC">spectral_slope</td><td class="Q">397</td><td class="Q">37</td><td><a href="report-e1f669.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-e1f669.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_anlmdn.c</td><td class="DESC">filter_channel</td><td class="Q">259</td><td class="Q">9</td><td><a href="report-e376d7.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-e376d7.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_alimiter.c</td><td class="DESC">filter_frame</td><td class="Q">184</td><td class="Q">13</td><td><a href="report-e75414.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-e75414.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>swresample/resample.c</td><td class="DESC">build_filter</td><td class="Q">125</td><td class="Q">41</td><td><a href="report-eae2d8.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-eae2d8.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_aspectralstats.c</td><td class="DESC">spectral_decrease</td><td class="Q">411</td><td class="Q">37</td><td><a href="report-f5e4b1.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-f5e4b1.html" -->
+</tr>
+<tr class="bt_possible_division_by_zero_possible_division_by_zero"><td class="DESC">Possible division by zero</td><td class="DESC">Possible division by zero</td><td>avfilter/af_aiir.c</td><td class="DESC">normalize_coeffs</td><td class="Q">546</td><td class="Q">47</td><td><a href="report-ff9735.html#EndPath">View Report</a></td>
+<!-- REPORTBUG id="report-ff9735.html" -->
+</tr>
+</tbody>
+</table>
+
+</body></html>

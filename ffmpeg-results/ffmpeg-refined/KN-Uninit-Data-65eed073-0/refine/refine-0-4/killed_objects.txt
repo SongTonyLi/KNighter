@@ -1,0 +1,3 @@
+libavformat/ape.o
+libavformat/act.o
+libavformat/ape.o

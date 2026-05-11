@@ -1,0 +1,72 @@
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In member function ‘const clang::CallExpr* {anonymous}::SAGenTestChecker::getTrackedAvioReadCallForSymbol(clang::ento::SymbolRef, clang::ento::ProgramStateRef) const’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:198:51: error: cannot convert ‘clang::ento::ProgramStatePartialTrait<llvm::ImmutableMap<const clang::ento::SymExpr*, const clang::ento::MemRegion*> >::lookup_type’ {aka ‘const clang::ento::MemRegion* const*’} to ‘const clang::ento::MemRegion*’ in initialization
+  198 |   const MemRegion *MR = State->get<RetSymToDstMap>(Sym);
+      |                         ~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~
+      |                                                   |
+      |                                                   clang::ento::ProgramStatePartialTrait<llvm::ImmutableMap<const clang::ento::SymExpr*, const clang::ento::MemRegion*> >::lookup_type {aka const clang::ento::MemRegion* const*}
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:202:37: error: cannot convert ‘clang::ento::ProgramStatePartialTrait<llvm::ImmutableMap<const clang::ento::MemRegion*, const clang::CallExpr*> >::lookup_type’ {aka ‘const clang::CallExpr* const*’} to ‘const clang::CallExpr*’ in return
+  202 |   return State->get<ShortReadDstMap>(MR);
+      |          ~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+      |                                     |
+      |                                     clang::ento::ProgramStatePartialTrait<llvm::ImmutableMap<const clang::ento::MemRegion*, const clang::CallExpr*> >::lookup_type {aka const clang::CallExpr* const*}
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In member function ‘bool {anonymous}::SAGenTestChecker::isKnownSafeUseSite(const clang::Stmt*, clang::ento::CheckerContext&) const’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:362:32: error: no matching function for call to ‘{anonymous}::SAGenTestChecker::isAvioReadCall(const clang::CallExpr*&, llvm::APSInt&) const’
+  362 |     if (LCall && isAvioReadCall(LCall, C) && EvaluateExprToInt(C, RHS, C))
+      |                  ~~~~~~~~~~~~~~^~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:87:6: note: candidate: ‘bool {anonymous}::SAGenTestChecker::isAvioReadCall(const clang::CallExpr*, clang::ento::CheckerContext&) const’
+   87 | bool SAGenTestChecker::isAvioReadCall(const CallExpr *CE,
+      |      ^~~~~~~~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:88:55: note:   no known conversion for argument 2 from ‘llvm::APSInt’ to ‘clang::ento::CheckerContext&’
+   88 |                                       CheckerContext &C) const {
+      |                                       ~~~~~~~~~~~~~~~~^
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:94:6: note: candidate: ‘bool {anonymous}::SAGenTestChecker::isAvioReadCall(const clang::ento::CallEvent&, clang::ento::CheckerContext&) const’
+   94 | bool SAGenTestChecker::isAvioReadCall(const CallEvent &Call,
+      |      ^~~~~~~~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:94:56: note:   no known conversion for argument 1 from ‘const clang::CallExpr*’ to ‘const clang::ento::CallEvent&’
+   94 | bool SAGenTestChecker::isAvioReadCall(const CallEvent &Call,
+      |                                       ~~~~~~~~~~~~~~~~~^~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:362:72: error: invalid initialization of reference of type ‘clang::ento::CheckerContext&’ from expression of type ‘llvm::APSInt’
+  362 |     if (LCall && isAvioReadCall(LCall, C) && EvaluateExprToInt(C, RHS, C))
+      |                                                                        ^
+In file included from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:15:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Checkers/utility.h:22:81: note: in passing argument 3 of ‘bool EvaluateExprToInt(llvm::APSInt&, const clang::Expr*, clang::ento::CheckerContext&)’
+   22 | bool EvaluateExprToInt(llvm::APSInt& EvalRes, const Expr *expr, CheckerContext &C);
+      |                                                                 ~~~~~~~~~~~~~~~~^
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:364:32: error: no matching function for call to ‘{anonymous}::SAGenTestChecker::isAvioReadCall(const clang::CallExpr*&, llvm::APSInt&) const’
+  364 |     if (RCall && isAvioReadCall(RCall, C) && EvaluateExprToInt(C, LHS, C))
+      |                  ~~~~~~~~~~~~~~^~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:87:6: note: candidate: ‘bool {anonymous}::SAGenTestChecker::isAvioReadCall(const clang::CallExpr*, clang::ento::CheckerContext&) const’
+   87 | bool SAGenTestChecker::isAvioReadCall(const CallExpr *CE,
+      |      ^~~~~~~~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:88:55: note:   no known conversion for argument 2 from ‘llvm::APSInt’ to ‘clang::ento::CheckerContext&’
+   88 |                                       CheckerContext &C) const {
+      |                                       ~~~~~~~~~~~~~~~~^
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:94:6: note: candidate: ‘bool {anonymous}::SAGenTestChecker::isAvioReadCall(const clang::ento::CallEvent&, clang::ento::CheckerContext&) const’
+   94 | bool SAGenTestChecker::isAvioReadCall(const CallEvent &Call,
+      |      ^~~~~~~~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:94:56: note:   no known conversion for argument 1 from ‘const clang::CallExpr*’ to ‘const clang::ento::CallEvent&’
+   94 | bool SAGenTestChecker::isAvioReadCall(const CallEvent &Call,
+      |                                       ~~~~~~~~~~~~~~~~~^~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:364:72: error: invalid initialization of reference of type ‘clang::ento::CheckerContext&’ from expression of type ‘llvm::APSInt’
+  364 |     if (RCall && isAvioReadCall(RCall, C) && EvaluateExprToInt(C, LHS, C))
+      |                                                                        ^
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Checkers/utility.h:22:81: note: in passing argument 3 of ‘bool EvaluateExprToInt(llvm::APSInt&, const clang::Expr*, clang::ento::CheckerContext&)’
+   22 | bool EvaluateExprToInt(llvm::APSInt& EvalRes, const Expr *expr, CheckerContext &C);
+      |                                                                 ~~~~~~~~~~~~~~~~^
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In member function ‘void {anonymous}::SAGenTestChecker::checkBranchCondition(const clang::Stmt*, clang::ento::CheckerContext&) const’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:581:62: error: cannot convert ‘clang::ento::ProgramStatePartialTrait<llvm::ImmutableMap<const clang::ento::MemRegion*, const clang::CallExpr*> >::lookup_type’ {aka ‘const clang::CallExpr* const*’} to ‘const clang::CallExpr*’ in initialization
+  581 |     const CallExpr *TrackedCall = State->get<ShortReadDstMap>(DstMR);
+      |                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~
+      |                                                              |
+      |                                                              clang::ento::ProgramStatePartialTrait<llvm::ImmutableMap<const clang::ento::MemRegion*, const clang::CallExpr*> >::lookup_type {aka const clang::CallExpr* const*}
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: At global scope:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:371:6: warning: ‘void {anonymous}::SAGenTestChecker::clearTrackedRegion(const clang::ento::MemRegion*, clang::ento::CheckerContext&) const’ defined but not used [-Wunused-function]
+  371 | void SAGenTestChecker::clearTrackedRegion(const MemRegion *MR,
+      |      ^~~~~~~~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:193:1: warning: ‘const clang::CallExpr* {anonymous}::SAGenTestChecker::getTrackedAvioReadCallForSymbol(clang::ento::SymbolRef, clang::ento::ProgramStateRef) const’ defined but not used [-Wunused-function]
+  193 | SAGenTestChecker::getTrackedAvioReadCallForSymbol(SymbolRef Sym,
+      | ^~~~~~~~~~~~~~~~
+make[3]: *** [tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/build.make:79: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/SAGenTestChecker.cpp.o] Error 1
+make[2]: *** [CMakeFiles/Makefile2:35772: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/all] Error 2
+make[1]: *** [CMakeFiles/Makefile2:35779: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/rule] Error 2
+make: *** [Makefile:7495: SAGenTestPlugin] Error 2

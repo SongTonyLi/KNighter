@@ -1,0 +1,3 @@
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:72:25: warning: ‘const clang::ento::MemRegion* {anonymous}::getRegionFromExpr(const clang::Expr*, clang::ento::CheckerContext&)’ defined but not used [-Wunused-function]
+   72 | static const MemRegion *getRegionFromExpr(const Expr *E, CheckerContext &C) {
+      |                         ^~~~~~~~~~~~~~~~~

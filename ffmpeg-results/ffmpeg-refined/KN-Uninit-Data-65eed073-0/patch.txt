@@ -1,0 +1,261 @@
+## Patch Description
+
+avformat: check avio_read() return values in dss/dtshd/mlv
+
+Multiple demuxers call avio_read() without checking its return
+value. When input is truncated, destination buffers remain
+uninitialized but are still used for offset calculations, memcmp,
+and metadata handling. This results in undefined behavior
+(detectable with Valgrind/MSan).
+
+Fix this by checking the return value of avio_read() in:
+- dss.c: dss_read_seek() — check before using header buffer
+- dtshddec.c: FILEINFO chunk — check before using value buffer
+- mlvdec.c: check_file_header() — check before memcmp on version
+
+Fixes: #21520
+
+## Buggy Code
+
+```c
+// Function: dss_read_seek in libavformat/dss.c
+static int dss_read_seek(AVFormatContext *s, int stream_index,
+                         int64_t timestamp, int flags)
+{
+    DSSDemuxContext *ctx = s->priv_data;
+    int64_t ret, seekto;
+    uint8_t header[DSS_AUDIO_BLOCK_HEADER_SIZE];
+    int offset;
+
+    if (ctx->audio_codec == DSS_ACODEC_DSS_SP)
+        seekto = timestamp / 264 * 41 / 506 * 512;
+    else
+        seekto = timestamp / 240 * ctx->packet_size / 506 * 512;
+
+    if (seekto < 0)
+        seekto = 0;
+
+    seekto += ctx->dss_header_size;
+
+    ret = avio_seek(s->pb, seekto, SEEK_SET);
+    if (ret < 0)
+        return ret;
+
+    avio_read(s->pb, header, DSS_AUDIO_BLOCK_HEADER_SIZE);
+    ctx->swap = !!(header[0] & 0x80);
+    offset = 2*header[1] + 2*ctx->swap;
+    if (offset < DSS_AUDIO_BLOCK_HEADER_SIZE)
+        return AVERROR_INVALIDDATA;
+    if (offset == DSS_AUDIO_BLOCK_HEADER_SIZE) {
+        ctx->counter = 0;
+        offset = avio_skip(s->pb, -DSS_AUDIO_BLOCK_HEADER_SIZE);
+    } else {
+        ctx->counter = DSS_BLOCK_SIZE - offset;
+        offset = avio_skip(s->pb, offset - DSS_AUDIO_BLOCK_HEADER_SIZE);
+    }
+    ctx->dss_sp_swap_byte = -1;
+    return 0;
+}
+```
+
+```c
+// Function: check_file_header in libavformat/mlvdec.c
+static int check_file_header(AVIOContext *pb, uint64_t guid)
+{
+    unsigned int size;
+    uint8_t version[8];
+
+    avio_skip(pb, 4);
+    size = avio_rl32(pb);
+    if (size < 52)
+        return AVERROR_INVALIDDATA;
+    avio_read(pb, version, 8);
+    if (memcmp(version, MLV_VERSION, 5) || avio_rl64(pb) != guid)
+        return AVERROR_INVALIDDATA;
+    avio_skip(pb, size - 24);
+    return 0;
+}
+```
+
+```c
+// Function: dtshd_read_header in libavformat/dtshddec.c
+static int dtshd_read_header(AVFormatContext *s)
+{
+    DTSHDDemuxContext *dtshd = s->priv_data;
+    AVIOContext *pb = s->pb;
+    uint64_t chunk_type, chunk_size;
+    int64_t duration, orig_nb_samples, data_start;
+    AVStream *st;
+    FFStream *sti;
+    int ret;
+    char *value;
+
+    st = avformat_new_stream(s, NULL);
+    if (!st)
+        return AVERROR(ENOMEM);
+    st->codecpar->codec_type = AVMEDIA_TYPE_AUDIO;
+    st->codecpar->codec_id   = AV_CODEC_ID_DTS;
+    sti = ffstream(st);
+    sti->need_parsing = AVSTREAM_PARSE_FULL_RAW;
+
+    for (;;) {
+        chunk_type = avio_rb64(pb);
+        chunk_size = avio_rb64(pb);
+
+        if (avio_feof(pb))
+            break;
+
+        if (chunk_size < 4) {
+            av_log(s, AV_LOG_ERROR, "chunk size too small\n");
+            return AVERROR_INVALIDDATA;
+        }
+        if (chunk_size > ((uint64_t)1 << 61)) {
+            av_log(s, AV_LOG_ERROR, "chunk size too big\n");
+            return AVERROR_INVALIDDATA;
+        }
+
+        switch (chunk_type) {
+        case STRMDATA:
+            data_start = avio_tell(pb);
+            dtshd->data_end = data_start + chunk_size;
+            if (dtshd->data_end <= chunk_size)
+                return AVERROR_INVALIDDATA;
+            if (!(pb->seekable & AVIO_SEEKABLE_NORMAL))
+                goto break_loop;
+            goto skip;
+            break;
+        case AUPR_HDR:
+            if (chunk_size < 21)
+                return AVERROR_INVALIDDATA;
+            avio_skip(pb, 3);
+            st->codecpar->sample_rate = avio_rb24(pb);
+            if (!st->codecpar->sample_rate)
+                return AVERROR_INVALIDDATA;
+            duration  = avio_rb32(pb); // num_frames
+            duration *= avio_rb16(pb); // samples_per_frames
+            st->duration = duration;
+            orig_nb_samples  = avio_rb32(pb);
+            orig_nb_samples <<= 8;
+            orig_nb_samples |= avio_r8(pb);
+            st->codecpar->ch_layout.nb_channels = ff_dca_count_chs_for_mask(avio_rb16(pb));
+            st->codecpar->initial_padding = avio_rb16(pb);
+            st->codecpar->trailing_padding = FFMAX(st->duration - orig_nb_samples - st->codecpar->initial_padding, 0);
+            st->start_time =
+            sti->start_skip_samples = st->codecpar->initial_padding;
+            sti->first_discard_sample = orig_nb_samples + st->codecpar->initial_padding;
+            sti->last_discard_sample = st->duration;
+            avio_skip(pb, chunk_size - 21);
+            break;
+        case FILEINFO:
+            if (chunk_size > INT_MAX)
+                goto skip;
+            value = av_malloc(chunk_size);
+            if (!value)
+                goto skip;
+            avio_read(pb, value, chunk_size);
+            value[chunk_size - 1] = 0;
+            av_dict_set(&s->metadata, "fileinfo", value,
+                        AV_DICT_DONT_STRDUP_VAL);
+            break;
+        default:
+skip:
+            ret = avio_skip(pb, chunk_size);
+            if (ret < 0)
+                return ret;
+        };
+    }
+
+    if (!dtshd->data_end)
+        return AVERROR_EOF;
+
+    avio_seek(pb, data_start, SEEK_SET);
+
+break_loop:
+    if (st->codecpar->sample_rate)
+        avpriv_set_pts_info(st, 64, 1, st->codecpar->sample_rate);
+
+    return 0;
+}
+```
+
+## Bug Fix Patch
+
+```diff
+diff --git a/libavformat/dss.c b/libavformat/dss.c
+index 6cabdb5421..ce86b32d6f 100644
+--- a/libavformat/dss.c
++++ b/libavformat/dss.c
+@@ -26,6 +26,7 @@
+ #include "avformat.h"
+ #include "demux.h"
+ #include "internal.h"
++#include "avio_internal.h"
+ 
+ #define DSS_HEAD_OFFSET_AUTHOR        0xc
+ #define DSS_AUTHOR_SIZE               16
+@@ -339,7 +340,9 @@ static int dss_read_seek(AVFormatContext *s, int stream_index,
+     if (ret < 0)
+         return ret;
+ 
+-    avio_read(s->pb, header, DSS_AUDIO_BLOCK_HEADER_SIZE);
++    ret = ffio_read_size(s->pb, header, DSS_AUDIO_BLOCK_HEADER_SIZE);
++    if (ret < 0)
++        return ret;
+     ctx->swap = !!(header[0] & 0x80);
+     offset = 2*header[1] + 2*ctx->swap;
+     if (offset < DSS_AUDIO_BLOCK_HEADER_SIZE)
+diff --git a/libavformat/dtshddec.c b/libavformat/dtshddec.c
+index b980fde6a9..843fd5460d 100644
+--- a/libavformat/dtshddec.c
++++ b/libavformat/dtshddec.c
+@@ -26,6 +26,7 @@
+ #include "avformat.h"
+ #include "demux.h"
+ #include "internal.h"
++#include "avio_internal.h"
+ 
+ #define AUPR_HDR 0x415550522D484452
+ #define AUPRINFO 0x41555052494E464F
+@@ -125,7 +126,11 @@ static int dtshd_read_header(AVFormatContext *s)
+             value = av_malloc(chunk_size);
+             if (!value)
+                 goto skip;
+-            avio_read(pb, value, chunk_size);
++            ret = ffio_read_size(pb, value, chunk_size);
++            if (ret < 0) {
++                av_free(value);
++                goto skip;
++            }
+             value[chunk_size - 1] = 0;
+             av_dict_set(&s->metadata, "fileinfo", value,
+                         AV_DICT_DONT_STRDUP_VAL);
+diff --git a/libavformat/mlvdec.c b/libavformat/mlvdec.c
+index fa35bc9c45..2c1fe001c7 100644
+--- a/libavformat/mlvdec.c
++++ b/libavformat/mlvdec.c
+@@ -36,6 +36,7 @@
+ #include "avformat.h"
+ #include "demux.h"
+ #include "internal.h"
++#include "avio_internal.h"
+ #include "riff.h"
+ 
+ #define MLV_VERSION "v2.0"
+@@ -74,12 +75,15 @@ static int check_file_header(AVIOContext *pb, uint64_t guid)
+ {
+     unsigned int size;
+     uint8_t version[8];
++    int ret;
+ 
+     avio_skip(pb, 4);
+     size = avio_rl32(pb);
+     if (size < 52)
+         return AVERROR_INVALIDDATA;
+-    avio_read(pb, version, 8);
++    ret = ffio_read_size(pb, version, 8);
++    if (ret < 0)
++        return ret;
+     if (memcmp(version, MLV_VERSION, 5) || avio_rl64(pb) != guid)
+         return AVERROR_INVALIDDATA;
+     avio_skip(pb, size - 24);
+```

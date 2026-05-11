@@ -1,0 +1,142 @@
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In member function ‘bool {anonymous}::SAGenTestChecker::doesConditionProveFullRead(const clang::Expr*, clang::ento::ProgramStateRef, const {anonymous}::ShortReadInfo&, clang::ento::CheckerContext&) const’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:215:34: error: no matching function for call to ‘clang::ento::ProgramState::getSVal(clang::ento::SVal&) const’
+  215 |       SVal SizeV = State->getSVal(SizeLoc);
+      |                    ~~~~~~~~~~~~~~^~~~~~~~~
+In file included from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/RangedConstraintManager.h:16,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/BugReporter/BugReporterVisitors.h:19,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/BugReporter/BugReporter.h:21,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:1:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h:805:13: note: candidate: ‘clang::ento::SVal clang::ento::ProgramState::getSVal(const clang::Stmt*, const clang::LocationContext*) const’
+  805 | inline SVal ProgramState::getSVal(const Stmt *Ex,
+      |             ^~~~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h:805:13: note:   candidate expects 2 arguments, 1 provided
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h:380:8: note: candidate: ‘clang::ento::SVal clang::ento::ProgramState::getSVal(clang::ento::Loc, clang::QualType) const’
+  380 |   SVal getSVal(Loc LV, QualType T = QualType()) const;
+      |        ^~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h:380:20: note:   no known conversion for argument 1 from ‘clang::ento::SVal’ to ‘clang::ento::Loc’
+  380 |   SVal getSVal(Loc LV, QualType T = QualType()) const;
+      |                ~~~~^~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h:828:13: note: candidate: ‘clang::ento::SVal clang::ento::ProgramState::getSVal(const clang::ento::MemRegion*, clang::QualType) const’
+  828 | inline SVal ProgramState::getSVal(const MemRegion* R, QualType T) const {
+      |             ^~~~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h:828:52: note:   no known conversion for argument 1 from ‘clang::ento::SVal’ to ‘const clang::ento::MemRegion*’
+  828 | inline SVal ProgramState::getSVal(const MemRegion* R, QualType T) const {
+      |                                   ~~~~~~~~~~~~~~~~~^
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In member function ‘void {anonymous}::SAGenTestChecker::checkBranchCondition(const clang::Stmt*, clang::ento::CheckerContext&) const’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:454:5: error: ‘Optional’ was not declared in this scope; did you mean ‘clang::ObjCImplementationControl::Optional’?
+  454 |     Optional<DefinedSVal> CondDV = CondV.getAs<DefinedSVal>();
+      |     ^~~~~~~~
+      |     clang::ObjCImplementationControl::Optional
+In file included from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/AST/ExprObjC.h:18,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/Analysis/CFG.h:19,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/Analysis/AnalysisDeclContext.h:22,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/Analysis/PathDiagnostic.h:17,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/BugReporter/BugReporter.h:17:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/AST/DeclObjC.h:118:56: note: ‘clang::ObjCImplementationControl::Optional’ declared here
+  118 | enum class ObjCImplementationControl { None, Required, Optional };
+      |                                                        ^~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:454:25: error: expected primary-expression before ‘>’ token
+  454 |     Optional<DefinedSVal> CondDV = CondV.getAs<DefinedSVal>();
+      |                         ^
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:454:27: error: ‘CondDV’ was not declared in this scope; did you mean ‘CondV’?
+  454 |     Optional<DefinedSVal> CondDV = CondV.getAs<DefinedSVal>();
+      |                           ^~~~~~
+      |                           CondV
+In file included from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/AST/APValue.h:20,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/AST/Stmt.h:16,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/Analysis/PathDiagnostic.h:16:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/FoldingSet.h: In instantiation of ‘static void llvm::DefaultFoldingSetTrait<T>::Profile(const T&, llvm::FoldingSetNodeID&) [with T = {anonymous}::ShortReadInfo]’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/ImmutableSet.h:843:32:   required from ‘static void llvm::ImutProfileInfo<T>::Profile(llvm::FoldingSetNodeID&, value_type_ref) [with T = {anonymous}::ShortReadInfo; value_type_ref = const {anonymous}::ShortReadInfo&]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/ImmutableMap.h:57:34:   required from ‘static void llvm::ImutKeyValueInfo<T, S>::Profile(llvm::FoldingSetNodeID&, value_type_ref) [with T = const clang::ento::MemRegion*; S = {anonymous}::ShortReadInfo; value_type_ref = const std::pair<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>&]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/ImmutableSet.h:292:22:   required from ‘static uint32_t llvm::ImutAVLTree<ImutInfo>::computeDigest(llvm::ImutAVLTree<ImutInfo>*, llvm::ImutAVLTree<ImutInfo>*, value_type_ref) [with ImutInfo = llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>; uint32_t = unsigned int; value_type_ref = const std::pair<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>&]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/ImmutableSet.h:307:31:   required from ‘uint32_t llvm::ImutAVLTree<ImutInfo>::computeDigest() [with ImutInfo = llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>; uint32_t = unsigned int]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/ImmutableSet.h:609:42:   required from ‘llvm::ImutAVLFactory<ImutInfo>::TreeTy* llvm::ImutAVLFactory<ImutInfo>::getCanonicalTree(TreeTy*) [with ImutInfo = llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>; TreeTy = llvm::ImutAVLTree<llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo> >]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/ImmutableMap.h:106:60:   required from ‘llvm::ImmutableMap<KeyT, ValT, ValInfo> llvm::ImmutableMap<KeyT, ValT, ValInfo>::Factory::remove(llvm::ImmutableMap<KeyT, ValT, ValInfo>, llvm::ImmutableMap<KeyT, ValT, ValInfo>::key_type_ref) [with KeyT = const clang::ento::MemRegion*; ValT = {anonymous}::ShortReadInfo; ValInfo = llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>; llvm::ImmutableMap<KeyT, ValT, ValInfo>::key_type_ref = const clang::ento::MemRegion* const&]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/ProgramStateTrait.h:175:22:   required from ‘static clang::ento::ProgramStatePartialTrait<llvm::ImmutableMap<Key, Data, Info> >::data_type clang::ento::ProgramStatePartialTrait<llvm::ImmutableMap<Key, Data, Info> >::Remove(data_type, key_type, context_type) [with Key = const clang::ento::MemRegion*; Data = {anonymous}::ShortReadInfo; Info = llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>; data_type = llvm::ImmutableMap<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>; key_type = const clang::ento::MemRegion*; context_type = llvm::ImmutableMap<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>::Factory&]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h:669:68:   required from ‘clang::ento::ProgramStateRef clang::ento::ProgramStateManager::remove(clang::ento::ProgramStateRef, typename clang::ento::ProgramStateTrait<T>::key_type, typename clang::ento::ProgramStateTrait<T>::context_type) [with T = {anonymous}::ShortReadDstMap; clang::ento::ProgramStateRef = llvm::IntrusiveRefCntPtr<const clang::ento::ProgramState>; typename clang::ento::ProgramStateTrait<T>::key_type = const clang::ento::MemRegion*; typename clang::ento::ProgramStateTrait<T>::context_type = llvm::ImmutableMap<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>::Factory&]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h:854:37:   required from ‘clang::ento::ProgramStateRef clang::ento::ProgramState::remove(typename clang::ento::ProgramStateTrait<T>::key_type) const [with T = {anonymous}::ShortReadDstMap; clang::ento::ProgramStateRef = llvm::IntrusiveRefCntPtr<const clang::ento::ProgramState>; typename clang::ento::ProgramStateTrait<T>::key_type = const clang::ento::MemRegion*]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:254:41:   required from here
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/FoldingSet.h:234:7: error: ‘const struct {anonymous}::ShortReadInfo’ has no member named ‘Profile’
+  234 |     X.Profile(ID);
+      |     ~~^~~~~~~
+In file included from /usr/include/c++/13/bits/unique_ptr.h:37,
+                 from /usr/include/c++/13/memory:78,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/Support/Casting.h:20,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/Basic/LLVM.h:21,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/AST/APValue.h:16:
+/usr/include/c++/13/bits/stl_function.h: In instantiation of ‘constexpr bool std::equal_to<_Tp>::operator()(const _Tp&, const _Tp&) const [with _Tp = const {anonymous}::ShortReadInfo]’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/ImmutableSet.h:920:37:   required from ‘static bool llvm::ImutContainerInfo<T>::isEqual(key_type_ref, key_type_ref) [with T = {anonymous}::ShortReadInfo; key_type_ref = const {anonymous}::ShortReadInfo&]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/ImmutableMap.h:52:41:   required from ‘static bool llvm::ImutKeyValueInfo<T, S>::isDataEqual(data_type_ref, data_type_ref) [with T = const clang::ento::MemRegion*; S = {anonymous}::ShortReadInfo; data_type_ref = const {anonymous}::ShortReadInfo&]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/ImmutableSet.h:126:31:   required from ‘bool llvm::ImutAVLTree<ImutInfo>::isElementEqual(value_type_ref) const [with ImutInfo = llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>; value_type_ref = const std::pair<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>&]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/ImmutableSet.h:134:26:   required from ‘bool llvm::ImutAVLTree<ImutInfo>::isElementEqual(const llvm::ImutAVLTree<ImutInfo>*) const [with ImutInfo = llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/ImmutableSet.h:439:41:   required from ‘static bool llvm::ImutAVLFactory<ImutInfo>::compareTreeWithSection(TreeTy*, typename TreeTy::iterator&, typename TreeTy::iterator&) [with ImutInfo = llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>; TreeTy = llvm::ImutAVLTree<llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo> >; typename TreeTy::iterator = llvm::ImutAVLTreeInOrderIterator<llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo> >]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/ImmutableSet.h:617:36:   required from ‘llvm::ImutAVLFactory<ImutInfo>::TreeTy* llvm::ImutAVLFactory<ImutInfo>::getCanonicalTree(TreeTy*) [with ImutInfo = llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>; TreeTy = llvm::ImutAVLTree<llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo> >]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/ImmutableMap.h:106:60:   required from ‘llvm::ImmutableMap<KeyT, ValT, ValInfo> llvm::ImmutableMap<KeyT, ValT, ValInfo>::Factory::remove(llvm::ImmutableMap<KeyT, ValT, ValInfo>, llvm::ImmutableMap<KeyT, ValT, ValInfo>::key_type_ref) [with KeyT = const clang::ento::MemRegion*; ValT = {anonymous}::ShortReadInfo; ValInfo = llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>; llvm::ImmutableMap<KeyT, ValT, ValInfo>::key_type_ref = const clang::ento::MemRegion* const&]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/ProgramStateTrait.h:175:22:   required from ‘static clang::ento::ProgramStatePartialTrait<llvm::ImmutableMap<Key, Data, Info> >::data_type clang::ento::ProgramStatePartialTrait<llvm::ImmutableMap<Key, Data, Info> >::Remove(data_type, key_type, context_type) [with Key = const clang::ento::MemRegion*; Data = {anonymous}::ShortReadInfo; Info = llvm::ImutKeyValueInfo<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>; data_type = llvm::ImmutableMap<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>; key_type = const clang::ento::MemRegion*; context_type = llvm::ImmutableMap<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>::Factory&]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h:669:68:   required from ‘clang::ento::ProgramStateRef clang::ento::ProgramStateManager::remove(clang::ento::ProgramStateRef, typename clang::ento::ProgramStateTrait<T>::key_type, typename clang::ento::ProgramStateTrait<T>::context_type) [with T = {anonymous}::ShortReadDstMap; clang::ento::ProgramStateRef = llvm::IntrusiveRefCntPtr<const clang::ento::ProgramState>; typename clang::ento::ProgramStateTrait<T>::key_type = const clang::ento::MemRegion*; typename clang::ento::ProgramStateTrait<T>::context_type = llvm::ImmutableMap<const clang::ento::MemRegion*, {anonymous}::ShortReadInfo>::Factory&]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h:854:37:   required from ‘clang::ento::ProgramStateRef clang::ento::ProgramState::remove(typename clang::ento::ProgramStateTrait<T>::key_type) const [with T = {anonymous}::ShortReadDstMap; clang::ento::ProgramStateRef = llvm::IntrusiveRefCntPtr<const clang::ento::ProgramState>; typename clang::ento::ProgramStateTrait<T>::key_type = const clang::ento::MemRegion*]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:254:41:   required from here
+/usr/include/c++/13/bits/stl_function.h:378:20: error: no match for ‘operator==’ (operand types are ‘const {anonymous}::ShortReadInfo’ and ‘const {anonymous}::ShortReadInfo’)
+  378 |       { return __x == __y; }
+      |                ~~~~^~~~~~
+In file included from /usr/include/c++/13/utility:69,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/Support/type_traits.h:18,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/Support/Casting.h:18:
+/usr/include/c++/13/bits/stl_pair.h:812:5: note: candidate: ‘template<class _T1, class _T2> constexpr bool std::operator==(const pair<_T1, _T2>&, const pair<_T1, _T2>&)’
+  812 |     operator==(const pair<_T1, _T2>& __x, const pair<_T1, _T2>& __y)
+      |     ^~~~~~~~
+/usr/include/c++/13/bits/stl_pair.h:812:5: note:   template argument deduction/substitution failed:
+/usr/include/c++/13/bits/stl_function.h:378:20: note:   ‘const {anonymous}::ShortReadInfo’ is not derived from ‘const std::pair<_T1, _T2>’
+  378 |       { return __x == __y; }
+      |                ~~~~^~~~~~
+In file included from /usr/include/c++/13/memory:65:
+/usr/include/c++/13/bits/allocator.h:237:5: note: candidate: ‘template<class _T1, class _T2> bool std::operator==(const allocator<_Tp1>&, const allocator<_T2>&)’
+  237 |     operator==(const allocator<_T1>&, const allocator<_T2>&)
+      |     ^~~~~~~~
+/usr/include/c++/13/bits/allocator.h:237:5: note:   template argument deduction/substitution failed:
+/usr/include/c++/13/bits/stl_function.h:378:20: note:   ‘const {anonymous}::ShortReadInfo’ is not derived from ‘const std::allocator<_Tp1>’
+  378 |       { return __x == __y; }
+      |                ~~~~^~~~~~
+In file included from /usr/include/c++/13/bits/stl_algobase.h:67,
+                 from /usr/include/c++/13/bits/stl_uninitialized.h:63,
+                 from /usr/include/c++/13/memory:69:
+/usr/include/c++/13/bits/stl_iterator.h:448:5: note: candidate: ‘template<class _Iterator> constexpr bool std::operator==(const reverse_iterator<_Iterator>&, const reverse_iterator<_Iterator>&)’
+  448 |     operator==(const reverse_iterator<_Iterator>& __x,
+      |     ^~~~~~~~
+/usr/include/c++/13/bits/stl_iterator.h:448:5: note:   template argument deduction/substitution failed:
+/usr/include/c++/13/bits/stl_function.h:378:20: note:   ‘const {anonymous}::ShortReadInfo’ is not derived from ‘const std::reverse_iterator<_Iterator>’
+  378 |       { return __x == __y; }
+      |                ~~~~^~~~~~
+/usr/include/c++/13/bits/stl_iterator.h:493:5: note: candidate: ‘template<class _IteratorL, class _IteratorR> constexpr bool std::operator==(const reverse_iterator<_Iterator>&, const reverse_iterator<_IteratorR>&)’
+  493 |     operator==(const reverse_iterator<_IteratorL>& __x,
+      |     ^~~~~~~~
+/usr/include/c++/13/bits/stl_iterator.h:493:5: note:   template argument deduction/substitution failed:
+/usr/include/c++/13/bits/stl_function.h:378:20: note:   ‘const {anonymous}::ShortReadInfo’ is not derived from ‘const std::reverse_iterator<_Iterator>’
+  378 |       { return __x == __y; }
+      |                ~~~~^~~~~~
+/usr/include/c++/13/bits/stl_iterator.h:1678:5: note: candidate: ‘template<class _IteratorL, class _IteratorR> constexpr bool std::operator==(const move_iterator<_IteratorL>&, const move_iterator<_IteratorR>&)’
+ 1678 |     operator==(const move_iterator<_IteratorL>& __x,
+      |     ^~~~~~~~
+/usr/include/c++/13/bits/stl_iterator.h:1678:5: note:   template argument deduction/substitution failed:
+/usr/include/c++/13/bits/stl_function.h:378:20: note:   ‘const {anonymous}::ShortReadInfo’ is not derived from ‘const std::move_iterator<_IteratorL>’
+  378 |       { return __x == __y; }
+      |                ~~~~^~~~~~
+/usr/include/c++/13/bits/stl_iterator.h:1748:5: note: candidate: ‘template<class _Iterator> constexpr bool std::operator==(const move_iterator<_IteratorL>&, const move_iterator<_IteratorL>&)’
+ 1748 |     operator==(const move_iterator<_Iterator>& __x,
+      |     ^~~~~~~~
+/usr/include/c++/13/bits/stl_iterator.h:1748:5: note:   template argument deduction/substitution failed:
+/usr/include/c++/13/bits/stl_function.h:378:20: note:   ‘const {anonymous}::ShortReadInfo’ is not derived from ‘const std::move_iterator<_IteratorL>’
+  378 |       { return __x == __y; }
+      |                ~~~~^~~~~~
+In file included from /usr/include/c++/13/bits/unique_ptr.h:36:
+/usr/include/c++/13/tuple:1919:5: note: candidate: ‘template<class ... _TElements, class ... _UElements> constexpr bool std::operator==(const tuple<_UTypes ...>&, const tuple<_UTypes ...>&)’
+ 1919 |     operator==(const tuple<_TElements...>& __t,
+      |     ^~~~~~~~
+/usr/include/c++/13/tuple:1919:5: note:   template argument deduction/substitution failed:
+/usr/include/c++/13/bits/stl_function.h:378:20: note:   ‘const {anonymous}::ShortReadInfo’ is not derived from ‘const std::tuple<_UTypes ...>’
+  378 |       { return __x == __y; }
+      |                ~~~~^~~~~~
+make[3]: *** [tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/build.make:79: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/SAGenTestChecker.cpp.o] Error 1
+make[2]: *** [CMakeFiles/Makefile2:35772: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/all] Error 2
+make[1]: *** [CMakeFiles/Makefile2:35779: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/rule] Error 2
+make: *** [Makefile:7495: SAGenTestPlugin] Error 2

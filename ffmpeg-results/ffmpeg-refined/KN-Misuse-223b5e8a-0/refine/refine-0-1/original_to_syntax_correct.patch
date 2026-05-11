@@ -1,0 +1,382 @@
+--- original_code.cpp+++ syntax_correct_refine_code.cpp@@ -22,7 +22,18 @@ using namespace ento;
+ using namespace taint;
+ 
+-REGISTER_MAP_WITH_PROGRAMSTATE(AggregateDenomMap, const MemRegion *, bool)
++namespace {
++
++enum AggregateDenomKind : unsigned {
++  AD_None = 0,
++  AD_ZeroInit = 1,      // float x = 0.0f;
++  AD_Aggregated = 2,    // x += y; or x = x + y;
++  AD_Guarded = 3        // x was checked against zero; suppress warning
++};
++
++} // end anonymous namespace
++
++REGISTER_MAP_WITH_PROGRAMSTATE(AggregateDenomMap, const MemRegion *, unsigned)
+ 
+ namespace {
+ 
+@@ -45,8 +56,31 @@     return IL->getValue().isZero();
+ 
+   llvm::APSInt Res;
+-  if (EvaluateExprToInt(Res, E, C))
++  if (EvaluateExprToInt(Res, E, C)) {
+     return Res == 0;
++  }
++
++  return false;
++}
++
++static bool isOneLiteralExpr(const Expr *E, CheckerContext &C) {
++  if (!E)
++    return false;
++
++  E = E->IgnoreParenImpCasts();
++  if (!E)
++    return false;
++
++  if (const auto *FL = dyn_cast<FloatingLiteral>(E))
++    return FL->getValue().isExactlyValue(1.0);
++
++  if (const auto *IL = dyn_cast<IntegerLiteral>(E))
++    return IL->getValue() == 1;
++
++  llvm::APSInt Res;
++  if (EvaluateExprToInt(Res, E, C)) {
++    return Res == 1;
++  }
+ 
+   return false;
+ }
+@@ -63,8 +97,7 @@   if (!MR)
+     return nullptr;
+ 
+-  MR = MR->getBaseRegion();
+-  return MR;
++  return MR->getBaseRegion();
+ }
+ 
+ static const MemRegion *getRegionFromTrackedExpr(const Expr *E, CheckerContext &C) {
+@@ -79,8 +112,91 @@   if (!MR)
+     return nullptr;
+ 
+-  MR = MR->getBaseRegion();
+-  return MR;
++  return MR->getBaseRegion();
++}
++
++static const MemRegion *getRegionFromDeclRefExpr(const Expr *E, CheckerContext &C) {
++  if (!E)
++    return nullptr;
++
++  E = E->IgnoreParenImpCasts();
++  const auto *DRE = dyn_cast_or_null<DeclRefExpr>(E);
++  if (!DRE)
++    return nullptr;
++
++  const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
++  if (!VD)
++    return nullptr;
++
++  if (!isRealFloatingType(VD->getType()))
++    return nullptr;
++
++  return getVarRegionFromDecl(VD, C);
++}
++
++static bool exprReferencesRegion(const Expr *E, const MemRegion *Target,
++                                 CheckerContext &C) {
++  if (!E || !Target)
++    return false;
++
++  E = E->IgnoreParenImpCasts();
++
++  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
++    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
++      const MemRegion *MR = getVarRegionFromDecl(VD, C);
++      return MR && MR == Target;
++    }
++  }
++
++  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
++    return exprReferencesRegion(BO->getLHS(), Target, C) ||
++           exprReferencesRegion(BO->getRHS(), Target, C);
++  }
++
++  if (const auto *UO = dyn_cast<UnaryOperator>(E))
++    return exprReferencesRegion(UO->getSubExpr(), Target, C);
++
++  if (const auto *CO = dyn_cast<ConditionalOperator>(E)) {
++    return exprReferencesRegion(CO->getCond(), Target, C) ||
++           exprReferencesRegion(CO->getTrueExpr(), Target, C) ||
++           exprReferencesRegion(CO->getFalseExpr(), Target, C);
++  }
++
++  if (const auto *BTE = dyn_cast<BinaryConditionalOperator>(E)) {
++    return exprReferencesRegion(BTE->getCond(), Target, C) ||
++           exprReferencesRegion(BTE->getTrueExpr(), Target, C) ||
++           exprReferencesRegion(BTE->getFalseExpr(), Target, C);
++  }
++
++  if (const auto *CE = dyn_cast<CallExpr>(E)) {
++    for (const Expr *Arg : CE->arguments()) {
++      if (exprReferencesRegion(Arg, Target, C))
++        return true;
++    }
++    return false;
++  }
++
++  if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
++    return exprReferencesRegion(ASE->getBase(), Target, C) ||
++           exprReferencesRegion(ASE->getIdx(), Target, C);
++  }
++
++  if (const auto *ME = dyn_cast<MemberExpr>(E))
++    return exprReferencesRegion(ME->getBase(), Target, C);
++
++  if (const auto *PE = dyn_cast<ParenExpr>(E))
++    return exprReferencesRegion(PE->getSubExpr(), Target, C);
++
++  if (const auto *ICE = dyn_cast<ImplicitCastExpr>(E))
++    return exprReferencesRegion(ICE->getSubExpr(), Target, C);
++
++  if (const auto *EWC = dyn_cast<ExprWithCleanups>(E))
++    return exprReferencesRegion(EWC->getSubExpr(), Target, C);
++
++  if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(E))
++    return exprReferencesRegion(MTE->getSubExpr(), Target, C);
++
++  return false;
+ }
+ 
+ static const MemRegion *getTrackedRegionFromZeroGuardCond(const Expr *Cond,
+@@ -99,32 +215,65 @@     }
+   }
+ 
++  if (const auto *UO = dyn_cast<UnaryOperator>(Cond)) {
++    if (UO->getOpcode() == UO_LNot)
++      return getTrackedRegionFromZeroGuardCond(UO->getSubExpr(), C);
++  }
++
+   if (const auto *BO = dyn_cast<BinaryOperator>(Cond)) {
+-    if (BO->getOpcode() == BO_EQ || BO->getOpcode() == BO_NE) {
++    if (BO->isComparisonOp()) {
+       const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
+       const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
+ 
+       if (isZeroLiteralExpr(LHS, C)) {
+-        if (const auto *DRE = dyn_cast<DeclRefExpr>(RHS)) {
+-          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+-            if (isRealFloatingType(VD->getType()))
+-              return getVarRegionFromDecl(VD, C);
+-          }
+-        }
++        if (const MemRegion *MR = getRegionFromDeclRefExpr(RHS, C))
++          return MR;
+       }
+ 
+       if (isZeroLiteralExpr(RHS, C)) {
+-        if (const auto *DRE = dyn_cast<DeclRefExpr>(LHS)) {
+-          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+-            if (isRealFloatingType(VD->getType()))
+-              return getVarRegionFromDecl(VD, C);
+-          }
+-        }
++        if (const MemRegion *MR = getRegionFromDeclRefExpr(LHS, C))
++          return MR;
+       }
+     }
+   }
+ 
+   return nullptr;
++}
++
++static bool isSelfAccumulation(const BinaryOperator *BO, CheckerContext &C,
++                               const MemRegion *LHSReg) {
++  if (!BO || !LHSReg)
++    return false;
++
++  if (BO->getOpcode() == BO_AddAssign)
++    return true;
++
++  if (BO->getOpcode() != BO_Assign)
++    return false;
++
++  const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
++  const auto *RHSBO = dyn_cast_or_null<BinaryOperator>(RHS);
++  if (!RHSBO)
++    return false;
++
++  if (RHSBO->getOpcode() != BO_Add)
++    return false;
++
++  return exprReferencesRegion(RHSBO->getLHS(), LHSReg, C) ||
++         exprReferencesRegion(RHSBO->getRHS(), LHSReg, C);
++}
++
++static bool isPlainOverwriteWithoutSelfReference(const BinaryOperator *BO,
++                                                 CheckerContext &C,
++                                                 const MemRegion *LHSReg) {
++  if (!BO || !LHSReg)
++    return false;
++
++  if (BO->getOpcode() != BO_Assign)
++    return false;
++
++  const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
++  return !exprReferencesRegion(RHS, LHSReg, C);
+ }
+ 
+ class SAGenTestChecker
+@@ -145,6 +294,10 @@   void checkPreStmt(const BinaryOperator *BO, CheckerContext &C) const;
+ 
+ private:
++  bool isTargetDivisionPattern(const BinaryOperator *BO, CheckerContext &C,
++                               const MemRegion *MR) const;
++  bool isFalsePositive(const BinaryOperator *BO, CheckerContext &C,
++                       const MemRegion *MR) const;
+   void reportBug(const BinaryOperator *BO, CheckerContext &C,
+                  const MemRegion *MR) const;
+ };
+@@ -174,7 +327,7 @@     if (!MR)
+       continue;
+ 
+-    State = State->set<AggregateDenomMap>(MR, true);
++    State = State->set<AggregateDenomMap>(MR, (unsigned)AD_ZeroInit);
+     Changed = true;
+   }
+ 
+@@ -193,30 +346,50 @@   if (!LHSReg)
+     return;
+ 
+-  const bool *Tracked = State->get<AggregateDenomMap>(LHSReg);
+-  if (!Tracked || !*Tracked)
+-    return;
+-
+-  const Expr *BindExpr = dyn_cast_or_null<Expr>(S);
+-  if (!BindExpr)
+-    return;
+-
+-  BindExpr = BindExpr->IgnoreParenImpCasts();
+-  if (!BindExpr)
+-    return;
+-
+-  if (isZeroLiteralExpr(BindExpr, C)) {
++  const unsigned *Tracked = State->get<AggregateDenomMap>(LHSReg);
++  if (!Tracked)
++    return;
++
++  const auto *BO = dyn_cast_or_null<BinaryOperator>(S);
++  if (!BO) {
+     C.addTransition(State);
+     return;
+   }
+ 
+-  llvm::APFloat F(0.0);
+-  if (BindExpr->EvaluateAsFloat(F, C.getASTContext())) {
+-    if (!F.isZero()) {
+-      State = State->remove<AggregateDenomMap>(LHSReg);
++  unsigned Kind = *Tracked;
++
++  if (Kind == AD_Guarded) {
++    C.addTransition(State);
++    return;
++  }
++
++  if (isSelfAccumulation(BO, C, LHSReg)) {
++    State = State->set<AggregateDenomMap>(LHSReg, (unsigned)AD_Aggregated);
++    C.addTransition(State);
++    return;
++  }
++
++  if (isPlainOverwriteWithoutSelfReference(BO, C, LHSReg)) {
++    const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
++
++    if (isZeroLiteralExpr(RHS, C)) {
++      State = State->set<AggregateDenomMap>(LHSReg, (unsigned)AD_ZeroInit);
+       C.addTransition(State);
+       return;
+     }
++
++    llvm::APFloat F(0.0);
++    if (RHS->EvaluateAsFloat(F, C.getASTContext())) {
++      if (!F.isZero()) {
++        State = State->remove<AggregateDenomMap>(LHSReg);
++        C.addTransition(State);
++        return;
++      }
++    }
++
++    State = State->remove<AggregateDenomMap>(LHSReg);
++    C.addTransition(State);
++    return;
+   }
+ 
+   C.addTransition(State);
+@@ -233,12 +406,52 @@   if (!MR)
+     return;
+ 
+-  const bool *Tracked = State->get<AggregateDenomMap>(MR);
+-  if (!Tracked || !*Tracked)
+-    return;
+-
+-  State = State->remove<AggregateDenomMap>(MR);
++  const unsigned *Tracked = State->get<AggregateDenomMap>(MR);
++  if (!Tracked)
++    return;
++
++  State = State->set<AggregateDenomMap>(MR, (unsigned)AD_Guarded);
+   C.addTransition(State);
++}
++
++bool SAGenTestChecker::isTargetDivisionPattern(const BinaryOperator *BO,
++                                               CheckerContext &C,
++                                               const MemRegion *MR) const {
++  if (!BO || !MR)
++    return false;
++
++  // Intentionally narrow the checker to the bug pattern we actually want:
++  // inversion of an accumulated floating aggregate, e.g. 1.0f / norm_fac.
++  const Expr *Num = BO->getLHS()->IgnoreParenImpCasts();
++  const Expr *Den = BO->getRHS()->IgnoreParenImpCasts();
++
++  if (!isOneLiteralExpr(Num, C))
++    return false;
++
++  const MemRegion *DenMR = getRegionFromDeclRefExpr(Den, C);
++  if (!DenMR || DenMR != MR)
++    return false;
++
++  return true;
++}
++
++bool SAGenTestChecker::isFalsePositive(const BinaryOperator *BO,
++                                       CheckerContext &C,
++                                       const MemRegion *MR) const {
++  if (!BO || !MR)
++    return true;
++
++  const unsigned *Tracked = C.getState()->get<AggregateDenomMap>(MR);
++  if (!Tracked)
++    return true;
++
++  if (*Tracked != AD_Aggregated)
++    return true;
++
++  if (!isTargetDivisionPattern(BO, C, MR))
++    return true;
++
++  return false;
+ }
+ 
+ void SAGenTestChecker::checkPreStmt(const BinaryOperator *BO,
+@@ -276,8 +489,7 @@   if (!MR)
+     return;
+ 
+-  const bool *Tracked = C.getState()->get<AggregateDenomMap>(MR);
+-  if (!Tracked || !*Tracked)
++  if (isFalsePositive(BO, C, MR))
+     return;
+ 
+   reportBug(BO, C, MR);

@@ -1,0 +1,62 @@
+Refinment Plan:
+
+1. **Root cause of the false positive**
+   - The checker currently tracks **any local floating variable initialized to zero** as a potential aggregate denominator.
+   - It reports whenever such a variable is later used as the RHS of a floating-point division.
+   - This is too broad: `total_weight` in the SSIM code is merely a zero-initialized accumulator, but it is **not the target pattern**. The target pattern is specifically:
+     - a float local initialized to zero,
+     - updated through **aggregation** (`x += ...`, `x = x + ...`, etc.),
+     - then used as a divisor or inverted,
+     - **without a feasible non-zero guarantee or zero-guard**.
+
+   The current checker never distinguishes:
+   - true aggregate accumulators from arbitrary zero-initialized locals,
+   - whether the variable was actually updated by aggregation,
+   - whether the division site is the characteristic inversion form (`1.0f / norm_fac`) or a direct division by the aggregate after accumulation,
+   - whether the value was modified indirectly via pointer/reference helper updates only.
+
+   In the false positive:
+   - `total_weight` is updated in a callee via `*total_weight += weight;`
+   - the checker only knows it was initialized to zero and later divided by,
+   - so it reports despite lacking the pattern-specific evidence required for this checker.
+
+2. **Specific fix strategy**
+   - Replace the current `bool` tracking with a small state machine:
+     - `ZeroInitOnly`
+     - `Aggregated`
+     - `Guarded`
+   - Only report when the denominator variable is in `Aggregated` state.
+   - Mark a variable as `Aggregated` only when the checker sees explicit local aggregation patterns such as:
+     - `x += expr`
+     - `x = x + expr`
+     - `x = expr + x`
+   - Keep zero-guard suppression, but make it more targeted:
+     - suppress when branch conditions mention the tracked variable in a zero-test or truthiness test.
+   - Add a pattern filter to reduce over-reporting while preserving the target bug:
+     - report on `lhs / denom` when `denom` is tracked as `Aggregated`.
+     - this still catches `1.0f / norm_fac`.
+   - Avoid tracking variables that are only zero-initialized and later passed by pointer unless we have direct aggregation evidence in the same function.
+
+3. **Why this removes the SSIM false positive**
+   - `total_weight` is initialized to `0.0`, but in `ssim360_plane_16bit` / `ssim360_plane_8bit` there is no visible local aggregation statement like `total_weight += ...`.
+   - The aggregation happens in another function through a pointer.
+   - With the refined checker, `total_weight` remains `ZeroInitOnly`, so division by it is **not reported**.
+   - The target bug still triggers because `norm_fac` is explicitly aggregated by:
+     - `norm_fac += band->norm_fac;`
+     - then inverted by `1.0f / norm_fac;`
+
+4. **Edge cases / regressions**
+   - We still handle `x = x + y` and `x = y + x`, not just `x += y`.
+   - We preserve branch-based suppression for:
+     - `if (x)`
+     - `if (!x)`
+     - `if (x == 0)`
+     - `if (x != 0)`
+     - and equivalent zero comparisons.
+   - We intentionally do **not** attempt interprocedural pointer-based aggregation inference because that is the main source of this false positive class and would require stronger state modeling to avoid noise.
+   - This may miss some true positives where the aggregate is updated only in helper callees through pointers, but it preserves detection of the provided target buggy code as required.
+   - Compatible with Clang-18 API: uses existing checker callbacks and `REGISTER_MAP_WITH_PROGRAMSTATE`.
+
+Refined Code:
+```cpp
+```

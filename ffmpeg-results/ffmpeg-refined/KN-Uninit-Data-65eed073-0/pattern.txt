@@ -1,0 +1,14 @@
+## Bug Pattern
+
+The bug pattern is **calling a partial/short-read I/O API (`avio_read()`) and then using the destination buffer as if it were fully initialized, without verifying that the requested number of bytes was actually read**.
+
+This commonly happens when:
+- data is read into a stack or heap buffer,
+- the return value of the read function is ignored,
+- the buffer is then used for:
+  - parsing fields / offset calculations,
+  - `memcmp()` or other comparisons,
+  - string/metadata handling,
+  - control-flow decisions.
+
+If the input is truncated or the read is otherwise short, part of the buffer remains uninitialized, causing undefined behavior and potentially incorrect parsing or memory-safety issues. The correct pattern is to check for a full read (or use a helper like `ffio_read_size()` that guarantees exact-size reads or returns an error) before consuming the buffer.

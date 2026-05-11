@@ -1,0 +1,302 @@
+--- original_code.cpp+++ syntax_correct_refine_code.cpp@@ -22,7 +22,15 @@ using namespace ento;
+ using namespace taint;
+ 
+-REGISTER_MAP_WITH_PROGRAMSTATE(AggregateDenomMap, const MemRegion *, bool)
++namespace {
++enum AggregateDenomKind : unsigned {
++  ADK_ZeroInitOnly = 1,
++  ADK_Aggregated = 2,
++  ADK_Guarded = 3
++};
++} // namespace
++
++REGISTER_MAP_WITH_PROGRAMSTATE(AggregateDenomMap, const MemRegion *, unsigned)
+ 
+ namespace {
+ 
+@@ -45,8 +53,9 @@     return IL->getValue().isZero();
+ 
+   llvm::APSInt Res;
+-  if (EvaluateExprToInt(Res, E, C))
++  if (EvaluateExprToInt(Res, E, C)) {
+     return Res == 0;
++  }
+ 
+   return false;
+ }
+@@ -63,8 +72,7 @@   if (!MR)
+     return nullptr;
+ 
+-  MR = MR->getBaseRegion();
+-  return MR;
++  return MR->getBaseRegion();
+ }
+ 
+ static const MemRegion *getRegionFromTrackedExpr(const Expr *E, CheckerContext &C) {
+@@ -74,13 +82,104 @@   E = E->IgnoreParenImpCasts();
+   if (!E)
+     return nullptr;
++
++  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
++    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
++      if (isRealFloatingType(VD->getType()))
++        return getVarRegionFromDecl(VD, C);
++    }
++  }
+ 
+   const MemRegion *MR = getMemRegionFromExpr(E, C);
+   if (!MR)
+     return nullptr;
+ 
+-  MR = MR->getBaseRegion();
+-  return MR;
++  return MR->getBaseRegion();
++}
++
++static bool refersToTrackedVar(const Expr *E, const MemRegion *TargetMR,
++                               CheckerContext &C) {
++  if (!E || !TargetMR)
++    return false;
++
++  E = E->IgnoreParenImpCasts();
++  if (!E)
++    return false;
++
++  if (const MemRegion *MR = getRegionFromTrackedExpr(E, C))
++    return MR == TargetMR;
++
++  return false;
++}
++
++static bool isTrackedFloatingVarExpr(const Expr *E, CheckerContext &C,
++                                     const MemRegion *&MR) {
++  MR = nullptr;
++  if (!E)
++    return false;
++
++  E = E->IgnoreParenImpCasts();
++  if (!E)
++    return false;
++
++  const auto *DRE = dyn_cast<DeclRefExpr>(E);
++  if (!DRE)
++    return false;
++
++  const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
++  if (!VD)
++    return false;
++
++  if (!isRealFloatingType(VD->getType()))
++    return false;
++
++  MR = getVarRegionFromDecl(VD, C);
++  return MR != nullptr;
++}
++
++static bool isAggregateUpdateExpr(const BinaryOperator *BO, CheckerContext &C,
++                                  const MemRegion *&MR) {
++  MR = nullptr;
++  if (!BO)
++    return false;
++
++  // x += y
++  if (BO->getOpcode() == BO_AddAssign) {
++    const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
++    if (!LHS)
++      return false;
++
++    if (!isTrackedFloatingVarExpr(LHS, C, MR))
++      return false;
++
++    return true;
++  }
++
++  // x = x + y  or  x = y + x
++  if (BO->getOpcode() == BO_Assign) {
++    const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
++    const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
++    if (!LHS || !RHS)
++      return false;
++
++    const MemRegion *LHSMR = nullptr;
++    if (!isTrackedFloatingVarExpr(LHS, C, LHSMR))
++      return false;
++
++    const auto *RHSBO = dyn_cast<BinaryOperator>(RHS);
++    if (!RHSBO || RHSBO->getOpcode() != BO_Add)
++      return false;
++
++    const Expr *AddL = RHSBO->getLHS()->IgnoreParenImpCasts();
++    const Expr *AddR = RHSBO->getRHS()->IgnoreParenImpCasts();
++
++    if (refersToTrackedVar(AddL, LHSMR, C) || refersToTrackedVar(AddR, LHSMR, C)) {
++      MR = LHSMR;
++      return true;
++    }
++  }
++
++  return false;
+ }
+ 
+ static const MemRegion *getTrackedRegionFromZeroGuardCond(const Expr *Cond,
+@@ -92,6 +191,7 @@   if (!Cond)
+     return nullptr;
+ 
++  // if (x)
+   if (const auto *DRE = dyn_cast<DeclRefExpr>(Cond)) {
+     if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+       if (isRealFloatingType(VD->getType()))
+@@ -99,6 +199,20 @@     }
+   }
+ 
++  // if (!x)
++  if (const auto *UO = dyn_cast<UnaryOperator>(Cond)) {
++    if (UO->getOpcode() == UO_LNot) {
++      const Expr *Sub = UO->getSubExpr()->IgnoreParenImpCasts();
++      if (const auto *DRE = dyn_cast<DeclRefExpr>(Sub)) {
++        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
++          if (isRealFloatingType(VD->getType()))
++            return getVarRegionFromDecl(VD, C);
++        }
++      }
++    }
++  }
++
++  // if (x == 0), if (x != 0), if (0 == x), if (0 != x)
+   if (const auto *BO = dyn_cast<BinaryOperator>(Cond)) {
+     if (BO->getOpcode() == BO_EQ || BO->getOpcode() == BO_NE) {
+       const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
+@@ -127,6 +241,33 @@   return nullptr;
+ }
+ 
++static bool isFalsePositive(const BinaryOperator *BO, CheckerContext &C) {
++  if (!BO)
++    return true;
++
++  if (BO->getOpcode() != BO_Div)
++    return true;
++
++  const Expr *Denom = BO->getRHS();
++  if (!Denom)
++    return true;
++
++  Denom = Denom->IgnoreParenImpCasts();
++  const MemRegion *MR = getRegionFromTrackedExpr(Denom, C);
++  if (!MR)
++    return true;
++
++  const unsigned *Kind = C.getState()->get<AggregateDenomMap>(MR);
++  if (!Kind)
++    return true;
++
++  // Only report for actual observed aggregation patterns.
++  if (*Kind != ADK_Aggregated)
++    return true;
++
++  return false;
++}
++
+ class SAGenTestChecker
+     : public Checker<check::PostStmt<DeclStmt>,
+                      check::Bind,
+@@ -166,7 +307,6 @@     const Expr *Init = VD->getInit();
+     if (!Init)
+       continue;
+-
+     if (!isZeroLiteralExpr(Init, C))
+       continue;
+ 
+@@ -174,7 +314,7 @@     if (!MR)
+       continue;
+ 
+-    State = State->set<AggregateDenomMap>(MR, true);
++    State = State->set<AggregateDenomMap>(MR, (unsigned)ADK_ZeroInitOnly);
+     Changed = true;
+   }
+ 
+@@ -193,8 +333,8 @@   if (!LHSReg)
+     return;
+ 
+-  const bool *Tracked = State->get<AggregateDenomMap>(LHSReg);
+-  if (!Tracked || !*Tracked)
++  const unsigned *Tracked = State->get<AggregateDenomMap>(LHSReg);
++  if (!Tracked)
+     return;
+ 
+   const Expr *BindExpr = dyn_cast_or_null<Expr>(S);
+@@ -205,11 +345,23 @@   if (!BindExpr)
+     return;
+ 
++  // Preserve tracking for explicit zero stores.
+   if (isZeroLiteralExpr(BindExpr, C)) {
++    State = State->set<AggregateDenomMap>(LHSReg, (unsigned)ADK_ZeroInitOnly);
+     C.addTransition(State);
+     return;
+   }
+ 
++  // If we already recognized it as an aggregate accumulator, keep that state
++  // across symbolic/non-constant updates. This is important for patterns like:
++  //   norm_fac += band->norm_fac;
++  if (*Tracked == (unsigned)ADK_Aggregated || *Tracked == (unsigned)ADK_Guarded) {
++    C.addTransition(State);
++    return;
++  }
++
++  // Otherwise, a known non-zero constant assignment means this is no longer the
++  // target "zero-initialized aggregate" pattern.
+   llvm::APFloat F(0.0);
+   if (BindExpr->EvaluateAsFloat(F, C.getASTContext())) {
+     if (!F.isZero()) {
+@@ -233,11 +385,13 @@   if (!MR)
+     return;
+ 
+-  const bool *Tracked = State->get<AggregateDenomMap>(MR);
+-  if (!Tracked || !*Tracked)
+-    return;
+-
+-  State = State->remove<AggregateDenomMap>(MR);
++  const unsigned *Tracked = State->get<AggregateDenomMap>(MR);
++  if (!Tracked)
++    return;
++
++  // Treat any explicit branch on the denominator as a guard and suppress the
++  // warning for this path.
++  State = State->set<AggregateDenomMap>(MR, (unsigned)ADK_Guarded);
+   C.addTransition(State);
+ }
+ 
+@@ -245,6 +399,20 @@                                     CheckerContext &C) const {
+   if (!BO)
+     return;
++
++  ProgramStateRef State = C.getState();
++
++  // First, recognize the target aggregate-construction pattern.
++  const MemRegion *AggMR = nullptr;
++  if (isAggregateUpdateExpr(BO, C, AggMR)) {
++    const unsigned *Tracked = State->get<AggregateDenomMap>(AggMR);
++    if (Tracked) {
++      State = State->set<AggregateDenomMap>(AggMR, (unsigned)ADK_Aggregated);
++      C.addTransition(State);
++    }
++  }
++
++  // Then, diagnose division by a tracked aggregate denominator.
+   if (BO->getOpcode() != BO_Div)
+     return;
+ 
+@@ -276,8 +444,13 @@   if (!MR)
+     return;
+ 
+-  const bool *Tracked = C.getState()->get<AggregateDenomMap>(MR);
+-  if (!Tracked || !*Tracked)
++  const unsigned *Tracked = C.getState()->get<AggregateDenomMap>(MR);
++  if (!Tracked)
++    return;
++  if (*Tracked != (unsigned)ADK_Aggregated)
++    return;
++
++  if (isFalsePositive(BO, C))
+     return;
+ 
+   reportBug(BO, C, MR);

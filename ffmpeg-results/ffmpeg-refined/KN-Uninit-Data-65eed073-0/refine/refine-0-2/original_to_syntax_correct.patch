@@ -1,0 +1,404 @@
+--- original_code.cpp+++ syntax_correct_refine_code.cpp@@ -17,12 +17,39 @@ #include "clang/AST/Stmt.h"
+ #include "clang/AST/Decl.h"
+ #include "llvm/ADT/APSInt.h"
++#include "llvm/ADT/FoldingSet.h"
+ 
+ using namespace clang;
+ using namespace ento;
+ using namespace taint;
+ 
+-REGISTER_MAP_WITH_PROGRAMSTATE(ShortReadDstMap, const MemRegion *, const CallExpr *)
++namespace {
++
++struct ShortReadInfo {
++  const CallExpr *ReadCall;
++  SymbolRef RetSym;
++  const MemRegion *RequestedSizeRegion;
++  const llvm::APSInt *RequestedConst;
++
++  bool operator==(const ShortReadInfo &Other) const {
++    return ReadCall == Other.ReadCall &&
++           RetSym == Other.RetSym &&
++           RequestedSizeRegion == Other.RequestedSizeRegion &&
++           RequestedConst == Other.RequestedConst;
++  }
++
++  void Profile(llvm::FoldingSetNodeID &ID) const {
++    ID.AddPointer(ReadCall);
++    ID.AddPointer(RetSym);
++    ID.AddPointer(RequestedSizeRegion);
++    ID.AddPointer(RequestedConst);
++  }
++};
++
++} // end anonymous namespace
++
++REGISTER_MAP_WITH_PROGRAMSTATE(ShortReadDstMap, const MemRegion *, ShortReadInfo)
++REGISTER_MAP_WITH_PROGRAMSTATE(RetVarToDstMap, const MemRegion *, const MemRegion *)
+ 
+ namespace {
+ 
+@@ -30,7 +57,8 @@     : public Checker<check::PostCall,
+                      check::BranchCondition,
+                      check::PreCall,
+-                     check::Location> {
++                     check::Location,
++                     check::Bind> {
+   mutable std::unique_ptr<BugType> BT;
+ 
+ public:
+@@ -42,6 +70,7 @@   void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
+   void checkLocation(SVal Loc, bool IsLoad, const Stmt *S,
+                      CheckerContext &C) const;
++  void checkBind(SVal Loc, SVal Val, const Stmt *S, CheckerContext &C) const;
+ 
+ private:
+   bool isAvioReadCall(const CallExpr *CE, CheckerContext &C) const;
+@@ -52,8 +81,17 @@                                                 CheckerContext &C) const;
+   const MemRegion *getTrackedBaseRegionFromAvioReadCall(const CallExpr *CE,
+                                                         CheckerContext &C) const;
+-  const CallExpr *getAvioReadCallFromRetVar(const Expr *CondE,
+-                                            CheckerContext &C) const;
++
++  const MemRegion *getRetVarRegionFromExpr(const Expr *E,
++                                           CheckerContext &C) const;
++  SymbolRef getSymbolFromExpr(const Expr *E, CheckerContext &C) const;
++  bool getExprAPSInt(const Expr *E, CheckerContext &C,
++                     llvm::APSInt &Out) const;
++
++  bool doesConditionProveFullRead(const Expr *CondE,
++                                  ProgramStateRef State,
++                                  const ShortReadInfo &Info,
++                                  CheckerContext &C) const;
+ 
+   void clearTrackedRegion(const MemRegion *MR, CheckerContext &C) const;
+   void reportBug(const MemRegion *MR, const Stmt *S, CheckerContext &C,
+@@ -114,32 +152,94 @@   return getTrackedBaseRegionFromExpr(CE->getArg(1), C);
+ }
+ 
+-const CallExpr *
+-SAGenTestChecker::getAvioReadCallFromRetVar(const Expr *CondE,
+-                                            CheckerContext &C) const {
+-  if (!CondE)
+-    return nullptr;
+-
+-  const DeclRefExpr *DRE = findSpecificTypeInChildren<DeclRefExpr>(CondE);
+-  if (!DRE)
+-    return nullptr;
+-
+-  const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
+-  if (!VD)
+-    return nullptr;
+-
+-  if (const Expr *Init = VD->getInit()) {
+-    if (const CallExpr *CE = findSpecificTypeInChildren<CallExpr>(Init)) {
+-      if (isAvioReadCall(CE, C))
+-        return CE;
+-    }
+-    if (const CallExpr *CE = dyn_cast<CallExpr>(Init->IgnoreParenImpCasts())) {
+-      if (isAvioReadCall(CE, C))
+-        return CE;
+-    }
+-  }
+-
+-  return nullptr;
++const MemRegion *
++SAGenTestChecker::getRetVarRegionFromExpr(const Expr *E,
++                                          CheckerContext &C) const {
++  if (!E)
++    return nullptr;
++  return getTrackedBaseRegionFromExpr(E, C);
++}
++
++SymbolRef SAGenTestChecker::getSymbolFromExpr(const Expr *E,
++                                              CheckerContext &C) const {
++  if (!E)
++    return nullptr;
++  SVal V = C.getState()->getSVal(E, C.getLocationContext());
++  return V.getAsSymbol();
++}
++
++bool SAGenTestChecker::getExprAPSInt(const Expr *E, CheckerContext &C,
++                                     llvm::APSInt &Out) const {
++  if (!E)
++    return false;
++  return EvaluateExprToInt(Out, E, C);
++}
++
++bool SAGenTestChecker::doesConditionProveFullRead(const Expr *CondE,
++                                                  ProgramStateRef State,
++                                                  const ShortReadInfo &Info,
++                                                  CheckerContext &C) const {
++  if (!CondE || !Info.RetSym)
++    return false;
++
++  const Expr *E = CondE->IgnoreParenImpCasts();
++
++  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
++    if (!BO->isComparisonOp())
++      return false;
++
++    const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
++    const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
++
++    SymbolRef LHSSym = getSymbolFromExpr(LHS, C);
++    SymbolRef RHSSym = getSymbolFromExpr(RHS, C);
++
++    bool MentionsRet = (LHSSym && LHSSym == Info.RetSym) ||
++                       (RHSSym && RHSSym == Info.RetSym);
++    if (!MentionsRet)
++      return false;
++
++    SVal RetV = C.getSValBuilder().makeSymbolVal(Info.RetSym);
++
++    if (Info.RequestedConst) {
++      NonLoc RetNL = RetV.castAs<NonLoc>();
++      NonLoc SizeNL = C.getSValBuilder().makeIntVal(*Info.RequestedConst)
++                          .castAs<NonLoc>();
++      DefinedOrUnknownSVal Eq =
++          C.getSValBuilder().evalEQ(State, RetNL, SizeNL);
++
++      ProgramStateRef StEq = State->assume(Eq, true);
++      ProgramStateRef StNe = State->assume(Eq, false);
++
++      if (StEq && !StNe)
++        return true;
++
++      return false;
++    }
++
++    if (Info.RequestedSizeRegion) {
++      SVal SizeV = State->getSVal(loc::MemRegionVal(Info.RequestedSizeRegion));
++      SymbolRef SizeSym = SizeV.getAsSymbol();
++
++      if (!SizeSym)
++        return false;
++
++      NonLoc RetNL = RetV.castAs<NonLoc>();
++      NonLoc SizeNL = C.getSValBuilder().makeSymbolVal(SizeSym).castAs<NonLoc>();
++      DefinedOrUnknownSVal Eq =
++          C.getSValBuilder().evalEQ(State, RetNL, SizeNL);
++
++      ProgramStateRef StEq = State->assume(Eq, true);
++      ProgramStateRef StNe = State->assume(Eq, false);
++
++      if (StEq && !StNe)
++        return true;
++    }
++
++    return false;
++  }
++
++  return false;
+ }
+ 
+ void SAGenTestChecker::clearTrackedRegion(const MemRegion *MR,
+@@ -193,40 +293,163 @@   if (!DstMR)
+     return;
+ 
+-  llvm::APSInt RequestedSize;
+-  (void)EvaluateExprToInt(RequestedSize, CE->getArg(2), C);
++  ShortReadInfo Info;
++  Info.ReadCall = CE;
++  Info.RetSym = Call.getReturnValue().getAsSymbol();
++  Info.RequestedSizeRegion = nullptr;
++  Info.RequestedConst = nullptr;
++
++  llvm::APSInt ReqSize;
++  if (getExprAPSInt(CE->getArg(2), C, ReqSize)) {
++    // Intentionally left as nullptr to preserve original behavior.
++  }
++
++  if (const MemRegion *ReqMR = getTrackedBaseRegionFromExpr(CE->getArg(2), C)) {
++    if (isa<VarRegion>(ReqMR))
++      Info.RequestedSizeRegion = ReqMR;
++  }
+ 
+   ProgramStateRef State = C.getState();
+-  State = State->set<ShortReadDstMap>(DstMR, CE);
++  State = State->set<ShortReadDstMap>(DstMR, Info);
++  C.addTransition(State);
++}
++
++void SAGenTestChecker::checkBind(SVal Loc, SVal Val, const Stmt *S,
++                                 CheckerContext &C) const {
++  const auto *BO = dyn_cast_or_null<BinaryOperator>(S);
++  if (!BO || !BO->isAssignmentOp())
++    return;
++
++  const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
++  const auto *CE = dyn_cast<CallExpr>(RHS);
++  if (!CE || !isAvioReadCall(CE, C))
++    return;
++
++  const MemRegion *LHSRegion = Loc.getAsRegion();
++  if (!LHSRegion)
++    return;
++
++  LHSRegion = LHSRegion->getBaseRegion();
++  if (!LHSRegion)
++    return;
++
++  const MemRegion *DstMR = getTrackedBaseRegionFromAvioReadCall(CE, C);
++  if (!DstMR)
++    return;
++
++  ProgramStateRef State = C.getState();
++  State = State->set<RetVarToDstMap>(LHSRegion, DstMR);
+   C.addTransition(State);
+ }
+ 
+ void SAGenTestChecker::checkBranchCondition(const Stmt *Condition,
+                                             CheckerContext &C) const {
+-  if (!Condition)
+-    return;
+-
+-  const CallExpr *DirectCall = findSpecificTypeInChildren<CallExpr>(Condition);
+-  if (DirectCall && isAvioReadCall(DirectCall, C)) {
+-    const MemRegion *DstMR = getTrackedBaseRegionFromAvioReadCall(DirectCall, C);
+-    if (DstMR)
++  const Expr *CondE = dyn_cast_or_null<Expr>(Condition);
++  if (!CondE)
++    return;
++
++  ProgramStateRef State = C.getState();
++
++  if (const CallExpr *DirectCall = findSpecificTypeInChildren<CallExpr>(CondE)) {
++    if (isAvioReadCall(DirectCall, C)) {
++      const MemRegion *DstMR = getTrackedBaseRegionFromAvioReadCall(DirectCall, C);
++      if (!DstMR)
++        return;
++
++      const ShortReadInfo *Info = State->get<ShortReadDstMap>(DstMR);
++      if (!Info)
++        return;
++
++      return;
++    }
++  }
++
++  const DeclRefExpr *DRE = findSpecificTypeInChildren<DeclRefExpr>(CondE);
++  if (!DRE)
++    return;
++
++  const MemRegion *RetVarMR = getRetVarRegionFromExpr(DRE, C);
++  if (!RetVarMR)
++    return;
++
++  const MemRegion *const *DstMRPtr = State->get<RetVarToDstMap>(RetVarMR);
++  if (!DstMRPtr)
++    return;
++
++  const MemRegion *DstMR = *DstMRPtr;
++  const ShortReadInfo *Info = State->get<ShortReadDstMap>(DstMR);
++  if (!Info)
++    return;
++
++  if (doesConditionProveFullRead(CondE, State, *Info, C)) {
++    clearTrackedRegion(DstMR, C);
++    return;
++  }
++
++  if (const auto *BO = dyn_cast<BinaryOperator>(CondE->IgnoreParenImpCasts())) {
++    if (!BO->isComparisonOp())
++      return;
++
++    const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
++    const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
++
++    bool LHSIsRet = false;
++    if (const auto *LHSRef = dyn_cast<DeclRefExpr>(LHS)) {
++      if (LHSRef->getDecl() == DRE->getDecl())
++        LHSIsRet = true;
++    }
++    bool RHSIsRet = false;
++    if (const auto *RHSRef = dyn_cast<DeclRefExpr>(RHS)) {
++      if (RHSRef->getDecl() == DRE->getDecl())
++        RHSIsRet = true;
++    }
++
++    if (!LHSIsRet && !RHSIsRet)
++      return;
++
++    const Expr *Other = LHSIsRet ? RHS : LHS;
++
++    const CallExpr *ReadCall = Info->ReadCall;
++    if (!ReadCall || ReadCall->getNumArgs() != 3)
++      return;
++
++    const Expr *ReqExpr = ReadCall->getArg(2)->IgnoreParenImpCasts();
++    llvm::APSInt OtherVal, ReqVal;
++
++    bool SameAsRequested = false;
++    if (getExprAPSInt(Other, C, OtherVal) && getExprAPSInt(ReqExpr, C, ReqVal)) {
++      SameAsRequested = (OtherVal == ReqVal);
++    } else {
++      SameAsRequested = ExprHasName(Other, Lexer::getSourceText(
++                                              CharSourceRange::getTokenRange(ReqExpr->getSourceRange()),
++                                              C.getSourceManager(), C.getLangOpts()), C);
++    }
++
++    if (!SameAsRequested)
++      return;
++
++    SVal CondV = State->getSVal(CondE, C.getLocationContext());
++    std::optional<DefinedSVal> CondDV = CondV.getAs<DefinedSVal>();
++    if (!CondDV)
++      return;
++
++    ProgramStateRef TrueState = State->assume(*CondDV, true);
++    ProgramStateRef FalseState = State->assume(*CondDV, false);
++
++    BinaryOperatorKind Op = BO->getOpcode();
++    bool EqualityHolds = false;
++
++    if (TrueState && !FalseState) {
++      if (Op == BO_EQ)
++        EqualityHolds = true;
++    } else if (!TrueState && FalseState) {
++      if (Op == BO_NE)
++        EqualityHolds = true;
++    }
++
++    if (EqualityHolds)
+       clearTrackedRegion(DstMR, C);
+-    return;
+-  }
+-
+-  const Expr *CondE = dyn_cast<Expr>(Condition);
+-  if (!CondE)
+-    return;
+-
+-  const CallExpr *TrackedCall = getAvioReadCallFromRetVar(CondE, C);
+-  if (!TrackedCall)
+-    return;
+-
+-  const MemRegion *DstMR = getTrackedBaseRegionFromAvioReadCall(TrackedCall, C);
+-  if (!DstMR)
+-    return;
+-
+-  clearTrackedRegion(DstMR, C);
++  }
+ }
+ 
+ void SAGenTestChecker::checkPreCall(const CallEvent &Call,
+@@ -248,8 +471,8 @@     if (!MR)
+       continue;
+ 
+-    const CallExpr *const *TrackedBy = State->get<ShortReadDstMap>(MR);
+-    if (!TrackedBy)
++    const ShortReadInfo *Info = State->get<ShortReadDstMap>(MR);
++    if (!Info)
+       continue;
+ 
+     reportBug(MR, Call.getOriginExpr(),
+@@ -270,8 +493,8 @@   if (!MR)
+     return;
+ 
+-  const CallExpr *const *TrackedBy = State->get<ShortReadDstMap>(MR);
+-  if (!TrackedBy)
++  const ShortReadInfo *Info = State->get<ShortReadDstMap>(MR);
++  if (!Info)
+     return;
+ 
+   if (IsLoad) {

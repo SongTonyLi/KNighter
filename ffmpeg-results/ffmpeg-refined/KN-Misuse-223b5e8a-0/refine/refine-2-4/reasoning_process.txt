@@ -1,0 +1,61 @@
+Refinment Plan:
+
+1. Root cause of the false positive  
+   The checker currently tracks any local floating variable initialized to `0` as a potential aggregate denominator, and keeps tracking it unless it is later bound to a provably nonzero constant. This is too coarse.
+
+   In the false positive:
+   - `total_weight` is initialized to `0.0`
+   - then updated via `total_weight += s->weights[i]`
+   - each added term is strictly positive under the function’s invariants
+   - but the checker does not understand additive accumulation or positivity-producing expressions like `exp(...)`, so it still considers `total_weight` “possibly zero” at `1.0 / total_weight`
+
+   So the core problem is:
+   - no distinction between “plain zero-initialized float” and “aggregate built from unconstrained runtime data”
+   - no state tracking for additive accumulation
+   - no recognition of definitely-positive accumulated terms
+   - branch handling is unsoundly broad: any branch mentioning the variable removes tracking on all successors
+
+2. Fix strategy  
+   We should refine the checker into a small state machine for tracked variables:
+   - track only variables that look like aggregate denominators
+   - record whether the variable has been updated through additive accumulation
+   - record whether we have seen at least one definitely-positive contribution
+   - only warn for divisions on variables that:
+     - started from zero,
+     - were used as an aggregate accumulator,
+     - and still have no evidence of a positive contribution,
+     - and are not proven nonzero on the current path
+
+   This preserves the target bug:
+   - `norm_fac` starts at `0.0f`
+   - gets updated by `norm_fac += band->norm_fac`
+   - `band->norm_fac` may be `0.0f`
+   - no positivity proof exists
+   - division still warns
+
+   And suppresses the false positive:
+   - `total_weight += c1 * exp(...)`
+   - the RHS is recognized as definitely positive
+   - state changes to “has positive contribution”
+   - no warning at `1.0 / total_weight`
+
+3. API-compatible implementation choices for Clang 18
+   - Keep `REGISTER_MAP_WITH_PROGRAMSTATE(...)`
+   - Replace `bool` state with a small enum payload
+   - Use `check::PostStmt<BinaryOperator>` to detect compound assignments and simple assignments after the statement has been processed
+   - Use `check::BranchCondition` only to conservatively suppress when the current path contains an explicit zero-check guard relevant to the denominator
+   - Use `ConstraintManager::assume` on the denominator SVal in `checkPreStmt` to avoid reporting when the current path already proves nonzero
+
+4. Edge cases / regressions considered
+   - `x = x + something` and `x += something` both handled
+   - explicit reinitialization to zero keeps tracking
+   - assignment to a definite nonzero constant clears tracking
+   - assignment to unknown expression keeps tracked but loses positive-contribution proof unless the expression itself is definitely positive
+   - branch guards:
+     - `if (x)`, `if (x != 0)`, `if (0 != x)`, `if (x == 0)` are recognized
+     - we only suppress on the path where the variable is constrained nonzero by the solver anyway; the explicit guard marker is just an extra false-positive reduction
+   - still detects the target bug because summed terms are not definitely positive in general
+
+Refined Code:
+```cpp
+```

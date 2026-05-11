@@ -1,0 +1,57 @@
+Refinment Plan:
+1. Root cause of the false positive  
+   The checker currently tracks any local floating variable initialized to zero and reports when it is later used as a floating-point divisor unless some very shallow conditions clear the state.
+
+   This is far too broad for the intended bug pattern. In particular:
+   - `checkPostStmt` marks every `float x = 0;` as a candidate aggregate denominator.
+   - `checkBind` only removes tracking when the variable is bound to a provably nonzero constant. It does not distinguish:
+     - plain reassignment from aggregation,
+     - non-aggregate computations,
+     - safe guarded uses,
+     - variables that became constrained nonzero by path conditions.
+   - `checkBranchCondition` removes tracking for any branch mentioning the variable or `x == 0` / `x != 0`, regardless of whether the current path is actually the safe path.
+   - `checkPreStmt` reports on any division by a tracked variable, even if the denominator is known nonzero on the current path by the constraint manager.
+
+   As a result, the checker degenerates into “float variable initialized to 0 and later used as divisor”, which explains the many FFmpeg false positives.
+
+2. Fix strategy  
+   Narrow the checker to the intended pattern:
+   - Track only variables that look like aggregate accumulators:
+     - initialized to zero, and
+     - later updated with self-referential accumulation such as:
+       - `x += y`
+       - `x = x + y`
+       - `x = y + x`
+   - Track whether such a variable has ever been aggregated after initialization.
+   - Report only when such an aggregated variable is used as a divisor and may still be zero on the current path.
+   - Suppress reports if:
+     - the denominator is already constrained nonzero by the constraint manager,
+     - the denominator occurs in a ternary-style zero guard like `x ? a/x : 0`,
+     - the division is in the protected arm of a ternary `x ? 1.0f/x : 0`,
+     - the code is exactly assigning back a guarded reciprocal pattern.
+   - Stop relying on `checkBind` for core logic; use statement-level pattern matching in `checkPreStmt<BinaryOperator>` and path constraints.
+
+3. State tracking improvements  
+   Use a dedicated program-state map instead of a `bool`:
+   - `AggregateInfo { SawZeroInit, SawAggregation }`
+   This avoids conflating “was zero-initialized” with “is a true aggregate denominator candidate”.
+
+4. Edge cases / regressions considered
+   - True positive maintained:
+     - `float norm_fac = 0.0f;`
+     - `norm_fac += band->norm_fac;`
+     - `norm_fac = 1.0f / norm_fac;`
+     This is still reported because the variable is zero-initialized, aggregated, and divided without a proven nonzero constraint.
+   - Fixed patch should not report:
+     - `norm_fac = norm_fac ? 1.0f / norm_fac : 0;`
+     We suppress because the division is protected by the same-variable condition in a ternary.
+   - Guarded branch forms also suppressed by constraint manager:
+     - `if (norm_fac != 0) x = 1.0f / norm_fac;`
+     On that branch, denom is constrained nonzero.
+   - Non-aggregate denominators are no longer reported:
+     - plain scalar values initialized to zero then overwritten.
+   - We intentionally do not try to prove all algebraic forms; only robustly match common accumulation idioms compatible with Clang-18 APIs.
+
+Refined Code:
+```cpp
+```

@@ -1,0 +1,68 @@
+Refinment Plan:
+1. Root cause  
+   The checker currently tracks any local floating variable initialized to `0` as a potential aggregate denominator, and it keeps tracking it unless it is later bound to a provably non-zero constant. This is too coarse.
+
+   In the false positive:
+   ```c
+   float pns_energy = 0.0f;
+   ...
+   pns_energy += pns_senergy;
+   ...
+   energy_ratio = pns_tgt_energy / pns_energy;
+   ```
+   `pns_energy` is indeed accumulated, but it is not the target pattern the checker is supposed to find. The checker has no notion of:
+   - whether the variable is an actual “aggregate normalization factor”,
+   - whether the accumulation came from suspicious per-item normalization-like contributions,
+   - whether the division is the characteristic inversion form such as `1.0f / norm_fac`.
+
+   So it degenerates into “warn on division by any float variable that started at zero and was not proven non-zero”, which over-approximates badly.
+
+2. Fix strategy  
+   Narrow the checker to the intended bug pattern:
+   - Track only variables that look like aggregate normalization factors.
+   - Mark them as suspicious only when they participate in additive accumulation.
+   - Report only when they are used as divisor in the characteristic inversion pattern:
+     - `1.0 / agg`
+     - or optionally constant-like numerator / aggregate denominator.
+   - Suppress reports when the variable is clearly guarded by a zero check.
+   - Invalidate tracking when the variable is overwritten with a non-aggregate expression.
+
+   Concretely, I add:
+   - `AggregateKindMap`: tracks candidate variables.
+   - `ZeroGuardedMap`: tracks whether a candidate is currently protected by a branch condition.
+   - Heuristics:
+     - variable name contains `norm`, `factor`, `fac`, `scale`, `ratio`, `inv`
+     - accumulation expression also contains `norm`/`fac`/`scale` on RHS, or uses self `+=`.
+   - Division-site filtering:
+     - only report when denominator is tracked candidate
+     - and numerator is constant `1` / `1.0f` / integer 1, which matches the target bug and excludes the FP at `pns_tgt_energy / pns_energy`
+
+3. Why this still detects the target bug  
+   Target bug:
+   ```c
+   float norm_fac = 0.0f;
+   ...
+   norm_fac += band->norm_fac;
+   ...
+   norm_fac = 1.0f / norm_fac;
+   ```
+   This remains detected because:
+   - `norm_fac` is initialized to zero
+   - its name matches normalization-factor heuristics
+   - it is updated through `+=`
+   - RHS contains `norm_fac`-like naming
+   - later it is used in `1.0f / norm_fac`
+
+4. Edge cases / regressions  
+   - Guarded fix:
+     ```c
+     norm_fac = norm_fac ? 1.0f / norm_fac : 0;
+     ```
+     The checker should not warn. The branch-condition logic now marks the variable as guarded.
+   - Similar valid code using a different variable name may no longer be reported. This is an intentional precision tradeoff to align with the requested target bug pattern.
+   - If future true positives use `x = c / agg` where `c` is not 1, this version will not report. If desired, that can be widened later, but for now restricting to inversion is the safest way to eliminate this FP while preserving the known target detection.
+   - Clang-18 compatibility is preserved: only standard checker callbacks and `REGISTER_MAP_WITH_PROGRAMSTATE` are used.
+
+Refined Code:
+```cpp
+```

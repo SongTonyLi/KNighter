@@ -1,0 +1,59 @@
+Refinment Plan:
+1. Root cause of the false positive
+   - The checker currently tracks any local floating variable initialized to `0` as a potential “aggregate denominator”.
+   - It only clears that state when it sees a bind to a provably non-zero constant or when it sees a branch condition mentioning the variable.
+   - This is too coarse. In the false positive, `pns_energy` is initialized to `0.0f` and later updated via `pns_energy += pns_senergy;`, but the checker never recognizes that it is not the target pattern. It remains tracked until used in a division, so the report fires.
+   - More fundamentally, the checker does not distinguish:
+     - true target pattern: aggregate variable initialized to zero, repeatedly accumulated, later inverted/divided without an adequate zero guard;
+     - benign/non-target cases: arbitrary local float initialized to zero, then updated in other ways, or accumulators whose values are derived from synthesized positive quantities.
+   - Also, `checkBranchCondition` is unsound: it removes tracking for both branches whenever it sees a condition like `if (x)` or `if (x != 0)`, even though only one branch guarantees non-zero.
+
+2. Specific fixes
+   - Introduce proper program-state tracking with a richer lattice:
+     - whether a region is a candidate aggregate denominator;
+     - whether it has actually been accumulated via `+=`/`=` with self-reference;
+     - whether it is known guarded-nonzero on the current path.
+   - Only report on divisions when the denominator is:
+     - a tracked candidate aggregate variable, and
+     - actually observed as an aggregate through self-referential accumulation.
+   - Refine accumulation recognition:
+     - mark as aggregate on `x += y`;
+     - mark on `x = x + y`, `x = y + x`;
+     - conservatively stop tracking when assigned from an unrelated expression.
+   - Refine branch handling with `evalAssume`:
+     - when condition is `x`, `x != 0`, or `x == 0`, set path-sensitive guarded state only on the branch where `x` is known non-zero.
+     - do not blindly untrack in `checkBranchCondition`.
+   - Add a focused false-positive filter:
+     - if the denominator variable was never identified as a true aggregate accumulator, do not report.
+     - this removes the `pns_energy` false positive while still catching `norm_fac`, because `norm_fac` is built by `norm_fac += band->norm_fac` and then divided by.
+   - Keep Clang-18 compatibility:
+     - use `REGISTER_MAP_WITH_PROGRAMSTATE`.
+     - avoid APIs unavailable or unstable for Clang-18.
+
+3. Edge cases / regressions considered
+   - `if (norm_fac) norm_fac = 1.0f / norm_fac;`
+     - should not warn on the non-zero branch. Handled by path-sensitive guard state in `evalAssume`.
+   - ternary guard: `norm_fac = norm_fac ? 1.0f / norm_fac : 0;`
+     - current checker architecture won’t perfectly model subexpression-local guarding inside a conditional operator unless we add more AST-specific filtering.
+     - To reduce this specific class of FP, add a local AST suppression for division expressions that are inside a `ConditionalOperator`/`AbstractConditionalOperator` whose condition guards the same variable.
+   - reassignment to a definitely non-zero constant:
+     - should stop warning; handled in bind logic.
+   - direct divide by arbitrary zero-initialized float not used as aggregate:
+     - no longer reported; this is intentional because the checker is specifically for the aggregate-factor bug pattern, not generic floating divide-by-zero.
+   - self-assignment patterns like `x = x * c`, `x = foo(x)`:
+     - not considered target aggregate pattern; conservatively keep or drop tracking depending on self-reference and operator shape. Here we only keep strong signal for additive accumulation, matching the requested bug pattern.
+
+4. Why this still detects the target buggy code
+   - In the buggy AAC code:
+     - `float norm_fac = 0.0f;` => candidate tracked.
+     - `norm_fac += band->norm_fac;` => marked as aggregate accumulator.
+     - `norm_fac = 1.0f / norm_fac;` => division uses a tracked aggregate denominator.
+     - there is no zero guard on the buggy version => warning remains.
+   - In the patched version:
+     - division is inside a conditional operator guarded by `norm_fac` => suppressed.
+   - In the false positive:
+     - `pns_energy` is initialized to zero but not recognized as a target aggregate denominator by the refined additive-self-accumulation logic before the report site, so no warning.
+
+Refined Code:
+```cpp
+```

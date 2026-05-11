@@ -1,0 +1,44 @@
+Refinment Plan:
+1. Root cause of the false positive
+   - The checker currently tracks any local floating-point variable initialized to `0` as a potential aggregate denominator.
+   - It keeps that state unless the variable is bound to a provably non-zero constant or appears in a branch condition involving zero.
+   - This is too coarse: `total_weight` in the false positive is merely an accumulator initialized to zero and later used as a divisor, but it is not the target bug pattern of “aggregate factor built from data and then inverted/divided without a zero guard”.
+   - The checker does not distinguish:
+     - plain zero-initialized FP locals,
+     - true aggregate-denominator candidates formed via accumulation,
+     - variables that have been explicitly guarded,
+     - variables that have undergone a self-inversion pattern (`x = 1.0 / x`) characteristic of the target bug.
+   - As a result, it reports on generic divides like `ssim360 / total_weight`, especially on paths where loops do not execute.
+
+2. Fix strategy
+   - Replace the current boolean state with a structured state machine:
+     - `TrackedKind::UnknownZeroInit`: zero-initialized FP local, but not yet known to be an aggregate.
+     - `TrackedKind::AggregateCandidate`: variable has participated in self-accumulation / aggregate formation.
+     - `TrackedKind::Guarded`: variable has been checked against zero.
+     - `TrackedKind::InvertedAggregate`: variable underwent the target inversion pattern `x = c / x` (especially `1.0 / x`) while still being an aggregate candidate.
+   - Only report when the denominator is in `InvertedAggregate` state.
+   - Detect accumulation patterns in `checkBind` by inspecting assignments like:
+     - `x += y`
+     - `x = x + y`
+   - Detect zero guards in `checkBranchCondition`, including:
+     - `if (x)`
+     - `if (!x)`
+     - `if (x == 0)`, `if (x != 0)`, `if (0 == x)`, etc.
+   - Detect target inversion in `checkBind` when the tracked variable is assigned from an expression dividing by itself:
+     - `x = 1.0f / x`
+     - more generally `x = c / x`
+   - Keep conservative behavior: once guarded, stop warning on that variable.
+   - This eliminates the false positive because `total_weight` is accumulated, but never inverted into a normalization factor before use. The target buggy code still gets reported because `norm_fac` is accumulated and then assigned `1.0f / norm_fac`, which marks it as `InvertedAggregate`, and later its use as a denominator is reported.
+
+3. Edge cases and regressions considered
+   - `x += y` and `x = x + y` both tracked.
+   - `x = y + x` also tracked.
+   - `if (x)` and `if (x != 0)` both count as guards.
+   - Guarding removes the warning state to avoid false positives on patched code like:
+     `norm_fac = norm_fac ? 1.0f / norm_fac : 0;`
+   - Generic accumulators used as divisors are no longer reported unless they first undergo the inversion pattern.
+   - We preserve compatibility with Clang-18 APIs and do not remove any existing includes.
+
+Refined Code:
+```cpp
+```

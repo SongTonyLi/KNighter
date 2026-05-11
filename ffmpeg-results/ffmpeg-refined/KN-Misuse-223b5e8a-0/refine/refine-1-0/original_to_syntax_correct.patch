@@ -1,0 +1,403 @@
+--- original_code.cpp+++ syntax_correct_refine_code.cpp@@ -22,7 +22,37 @@ using namespace ento;
+ using namespace taint;
+ 
+-REGISTER_MAP_WITH_PROGRAMSTATE(AggregateDenomMap, const MemRegion *, bool)
++namespace {
++
++struct AggregateInfo {
++  bool IsAggregateBuilt = false;
++  bool MaybeZero = false;
++  bool SawSizeLikeTerm = false;
++
++  AggregateInfo() = default;
++  AggregateInfo(bool Built, bool MZero, bool SizeTerm)
++      : IsAggregateBuilt(Built), MaybeZero(MZero), SawSizeLikeTerm(SizeTerm) {}
++
++  bool operator==(const AggregateInfo &Other) const {
++    return IsAggregateBuilt == Other.IsAggregateBuilt &&
++           MaybeZero == Other.MaybeZero &&
++           SawSizeLikeTerm == Other.SawSizeLikeTerm;
++  }
++
++  bool operator!=(const AggregateInfo &Other) const {
++    return !(*this == Other);
++  }
++
++  void Profile(llvm::FoldingSetNodeID &ID) const {
++    ID.AddBoolean(IsAggregateBuilt);
++    ID.AddBoolean(MaybeZero);
++    ID.AddBoolean(SawSizeLikeTerm);
++  }
++};
++
++} // end anonymous namespace
++
++REGISTER_MAP_WITH_PROGRAMSTATE(AggregateInfoMap, const MemRegion *, AggregateInfo)
+ 
+ namespace {
+ 
+@@ -63,8 +93,7 @@   if (!MR)
+     return nullptr;
+ 
+-  MR = MR->getBaseRegion();
+-  return MR;
++  return MR->getBaseRegion();
+ }
+ 
+ static const MemRegion *getRegionFromTrackedExpr(const Expr *E, CheckerContext &C) {
+@@ -79,8 +108,7 @@   if (!MR)
+     return nullptr;
+ 
+-  MR = MR->getBaseRegion();
+-  return MR;
++  return MR->getBaseRegion();
+ }
+ 
+ static const MemRegion *getTrackedRegionFromZeroGuardCond(const Expr *Cond,
+@@ -127,6 +155,176 @@   return nullptr;
+ }
+ 
++static bool refersToSameVar(const Expr *E, const VarDecl *VD) {
++  if (!E || !VD)
++    return false;
++
++  E = E->IgnoreParenImpCasts();
++  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
++    return DRE->getDecl() == VD;
++  return false;
++}
++
++static bool exprContainsVar(const Expr *E, const VarDecl *VD) {
++  if (!E || !VD)
++    return false;
++
++  E = E->IgnoreParenImpCasts();
++
++  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
++    return DRE->getDecl() == VD;
++
++  for (const Stmt *Child : E->children()) {
++    if (const auto *CE = dyn_cast_or_null<Expr>(Child)) {
++      if (exprContainsVar(CE, VD))
++        return true;
++    }
++  }
++  return false;
++}
++
++static bool exprLooksLikeSizeTerm(const Expr *E) {
++  if (!E)
++    return false;
++
++  E = E->IgnoreParenImpCasts();
++
++  if (const auto *ME = dyn_cast<MemberExpr>(E)) {
++    const ValueDecl *MD = ME->getMemberDecl();
++    if (MD && MD->getIdentifier()) {
++      StringRef N = MD->getName();
++      if (N.equals("size") || N.endswith("_size") || N.contains("size"))
++        return true;
++    }
++  }
++
++  if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
++    if (exprLooksLikeSizeTerm(ASE->getBase()))
++      return true;
++  }
++
++  for (const Stmt *Child : E->children()) {
++    if (const auto *CE = dyn_cast_or_null<Expr>(Child)) {
++      if (exprLooksLikeSizeTerm(CE))
++        return true;
++    }
++  }
++
++  return false;
++}
++
++static bool isAggregateUpdateForVar(const BinaryOperator *BO, const VarDecl *VD,
++                                    bool &SawSizeLikeTerm) {
++  SawSizeLikeTerm = false;
++
++  if (!BO || !VD)
++    return false;
++
++  const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
++  if (!refersToSameVar(LHS, VD))
++    return false;
++
++  if (BO->getOpcode() == BO_AddAssign) {
++    const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
++    SawSizeLikeTerm = exprLooksLikeSizeTerm(RHS);
++    return true;
++  }
++
++  if (BO->getOpcode() == BO_Assign) {
++    const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
++    const auto *RB = dyn_cast<BinaryOperator>(RHS);
++    if (!RB || RB->getOpcode() != BO_Add)
++      return false;
++
++    bool SelfOnLHS = exprContainsVar(RB->getLHS(), VD);
++    bool SelfOnRHS = exprContainsVar(RB->getRHS(), VD);
++    if (!(SelfOnLHS || SelfOnRHS))
++      return false;
++
++    const Expr *Other = nullptr;
++    if (SelfOnLHS && !SelfOnRHS)
++      Other = RB->getRHS();
++    else if (!SelfOnLHS && SelfOnRHS)
++      Other = RB->getLHS();
++    else
++      Other = nullptr;
++
++    SawSizeLikeTerm = Other ? exprLooksLikeSizeTerm(Other) : exprLooksLikeSizeTerm(RHS);
++    return true;
++  }
++
++  return false;
++}
++
++static bool isPriorStructuralDivisorExpr(const Expr *E, CheckerContext &C) {
++  if (!E)
++    return false;
++
++  if (ExprHasName(E, ".size", C) || ExprHasName(E, "->size", C) ||
++      ExprHasName(E, "_size", C))
++    return true;
++
++  return exprLooksLikeSizeTerm(E);
++}
++
++class PriorDivVisitor : public RecursiveASTVisitor<PriorDivVisitor> {
++  const Stmt *Boundary;
++  CheckerContext &C;
++  bool Found = false;
++
++public:
++  PriorDivVisitor(const Stmt *Boundary, CheckerContext &C)
++      : Boundary(Boundary), C(C) {}
++
++  bool found() const { return Found; }
++
++  bool VisitBinaryOperator(BinaryOperator *BO) {
++    if (Found || !BO || BO == Boundary)
++      return true;
++
++    if (BO->getOpcode() != BO_Div)
++      return true;
++
++    const Expr *Den = BO->getRHS()->IgnoreParenImpCasts();
++    if (isPriorStructuralDivisorExpr(Den, C))
++      Found = true;
++
++    return !Found;
++  }
++};
++
++static bool hasEarlierStructuralDivision(const Stmt *At, CheckerContext &C) {
++  if (!At)
++    return false;
++
++  const LocationContext *LCtx = C.getLocationContext();
++  if (!LCtx)
++    return false;
++
++  const Stmt *Body = LCtx->getDecl()->getBody();
++  if (!Body)
++    return false;
++
++  PriorDivVisitor V(At, C);
++  V.TraverseStmt(const_cast<Stmt *>(Body));
++  return V.found();
++}
++
++static bool isFalsePositive(const BinaryOperator *BO, CheckerContext &C,
++                            const AggregateInfo &Info) {
++  if (!BO)
++    return false;
++
++  // Suppress the specific family of false positives where the denominator is an
++  // aggregate of structural ".size"-like terms and earlier control flow already
++  // performed a division by such a size term. This matches the readeia608 case
++  // while preserving the target norm_fac bug.
++  if (Info.SawSizeLikeTerm && hasEarlierStructuralDivision(BO, C))
++    return true;
++
++  return false;
++}
++
+ class SAGenTestChecker
+     : public Checker<check::PostStmt<DeclStmt>,
+                      check::Bind,
+@@ -166,7 +364,6 @@     const Expr *Init = VD->getInit();
+     if (!Init)
+       continue;
+-
+     if (!isZeroLiteralExpr(Init, C))
+       continue;
+ 
+@@ -174,7 +371,10 @@     if (!MR)
+       continue;
+ 
+-    State = State->set<AggregateDenomMap>(MR, true);
++    // Zero-initialized float local: possible future aggregate denominator,
++    // but not considered aggregate-built until we actually observe += or x=x+y.
++    AggregateInfo Info(/*Built=*/false, /*MaybeZero=*/true, /*SizeTerm=*/false);
++    State = State->set<AggregateInfoMap>(MR, Info);
+     Changed = true;
+   }
+ 
+@@ -193,32 +393,47 @@   if (!LHSReg)
+     return;
+ 
+-  const bool *Tracked = State->get<AggregateDenomMap>(LHSReg);
+-  if (!Tracked || !*Tracked)
+-    return;
++  const AggregateInfo *InfoPtr = State->get<AggregateInfoMap>(LHSReg);
++  if (!InfoPtr)
++    return;
++
++  AggregateInfo Info = *InfoPtr;
+ 
+   const Expr *BindExpr = dyn_cast_or_null<Expr>(S);
+-  if (!BindExpr)
+-    return;
++  if (!BindExpr) {
++    C.addTransition(State);
++    return;
++  }
+ 
+   BindExpr = BindExpr->IgnoreParenImpCasts();
+-  if (!BindExpr)
+-    return;
+-
++  if (!BindExpr) {
++    C.addTransition(State);
++    return;
++  }
++
++  // Keep zero-reset information.
+   if (isZeroLiteralExpr(BindExpr, C)) {
++    Info.MaybeZero = true;
++    State = State->set<AggregateInfoMap>(LHSReg, Info);
+     C.addTransition(State);
+     return;
+   }
+ 
++  // If this is a compile-time nonzero constant assignment, it is not a risky
++  // aggregate-zero denominator anymore unless later rebuilt by aggregate ops.
+   llvm::APFloat F(0.0);
+   if (BindExpr->EvaluateAsFloat(F, C.getASTContext())) {
+     if (!F.isZero()) {
+-      State = State->remove<AggregateDenomMap>(LHSReg);
++      State = State->remove<AggregateInfoMap>(LHSReg);
+       C.addTransition(State);
+       return;
+     }
+   }
+ 
++  // For non-constant binds:
++  // - if already aggregate-built, keep tracking as maybe-zero
++  // - otherwise remain dormant until a real aggregate update is observed
++  State = State->set<AggregateInfoMap>(LHSReg, Info);
+   C.addTransition(State);
+ }
+ 
+@@ -233,11 +448,18 @@   if (!MR)
+     return;
+ 
+-  const bool *Tracked = State->get<AggregateDenomMap>(MR);
+-  if (!Tracked || !*Tracked)
+-    return;
+-
+-  State = State->remove<AggregateDenomMap>(MR);
++  const AggregateInfo *InfoPtr = State->get<AggregateInfoMap>(MR);
++  if (!InfoPtr)
++    return;
++
++  AggregateInfo Info = *InfoPtr;
++  if (!Info.IsAggregateBuilt)
++    return;
++
++  // Conservative: any direct branch condition mentioning the denominator as a
++  // zero-check is treated as a guard and suppresses the warning afterwards.
++  Info.MaybeZero = false;
++  State = State->set<AggregateInfoMap>(MR, Info);
+   C.addTransition(State);
+ }
+ 
+@@ -245,6 +467,41 @@                                     CheckerContext &C) const {
+   if (!BO)
+     return;
++
++  ProgramStateRef State = C.getState();
++
++  // First, recognize aggregate-building updates.
++  if (BO->isAssignmentOp()) {
++    const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
++    const auto *DRE = dyn_cast<DeclRefExpr>(LHS);
++    if (DRE) {
++      const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
++      if (VD && isRealFloatingType(VD->getType())) {
++        const MemRegion *MR = getVarRegionFromDecl(VD, C);
++        if (MR) {
++          const AggregateInfo *OldInfo = State->get<AggregateInfoMap>(MR);
++          if (OldInfo) {
++            bool SawSizeLikeTerm = false;
++            if (isAggregateUpdateForVar(BO, VD, SawSizeLikeTerm)) {
++              AggregateInfo NewInfo = *OldInfo;
++              NewInfo.IsAggregateBuilt = true;
++              NewInfo.MaybeZero = true;
++              NewInfo.SawSizeLikeTerm =
++                  NewInfo.SawSizeLikeTerm || SawSizeLikeTerm;
++              State = State->set<AggregateInfoMap>(MR, NewInfo);
++              C.addTransition(State);
++            } else if (BO->getOpcode() == BO_Assign) {
++              // A plain assignment to something else breaks the aggregate pattern.
++              State = State->remove<AggregateInfoMap>(MR);
++              C.addTransition(State);
++            }
++          }
++        }
++      }
++    }
++  }
++
++  // Then, diagnose floating-point division by a tracked aggregate denominator.
+   if (BO->getOpcode() != BO_Div)
+     return;
+ 
+@@ -262,11 +519,11 @@     return;
+   Denom = Denom->IgnoreParenImpCasts();
+ 
+-  const auto *DRE = dyn_cast<DeclRefExpr>(Denom);
+-  if (!DRE)
+-    return;
+-
+-  const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
++  const auto *DenDRE = dyn_cast<DeclRefExpr>(Denom);
++  if (!DenDRE)
++    return;
++
++  const auto *VD = dyn_cast<VarDecl>(DenDRE->getDecl());
+   if (!VD)
+     return;
+   if (!isRealFloatingType(VD->getType()))
+@@ -276,8 +533,15 @@   if (!MR)
+     return;
+ 
+-  const bool *Tracked = C.getState()->get<AggregateDenomMap>(MR);
+-  if (!Tracked || !*Tracked)
++  const AggregateInfo *InfoPtr = C.getState()->get<AggregateInfoMap>(MR);
++  if (!InfoPtr)
++    return;
++
++  const AggregateInfo &Info = *InfoPtr;
++  if (!Info.IsAggregateBuilt || !Info.MaybeZero)
++    return;
++
++  if (isFalsePositive(BO, C, Info))
+     return;
+ 
+   reportBug(BO, C, MR);

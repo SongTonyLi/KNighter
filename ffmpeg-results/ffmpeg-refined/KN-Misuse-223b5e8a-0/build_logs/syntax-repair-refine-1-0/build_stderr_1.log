@@ -1,0 +1,18 @@
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In function ‘bool {anonymous}::exprLooksLikeSizeTerm(const clang::Expr*)’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:196:41: warning: ‘bool llvm::StringRef::endswith(llvm::StringRef) const’ is deprecated: Use ends_with instead [-Wdeprecated-declarations]
+  196 |       if (N.equals("size") || N.endswith("_size") || N.contains("size"))
+      |                               ~~~~~~~~~~^~~~~~~~~
+In file included from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/SmallString.h:18,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/APFixedPoint.h:22,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/AST/APValue.h:17,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/AST/Stmt.h:16,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/Analysis/PathDiagnostic.h:16,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/BugReporter/BugReporter.h:17,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:1:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/ADT/StringRef.h:278:27: note: declared here
+  278 |         "ends_with") bool endswith(StringRef Suffix) const {
+      |                           ^~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: At global scope:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:99:25: warning: ‘const clang::ento::MemRegion* {anonymous}::getRegionFromTrackedExpr(const clang::Expr*, clang::ento::CheckerContext&)’ defined but not used [-Wunused-function]
+   99 | static const MemRegion *getRegionFromTrackedExpr(const Expr *E, CheckerContext &C) {
+      |                         ^~~~~~~~~~~~~~~~~~~~~~~~

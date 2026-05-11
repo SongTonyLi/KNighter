@@ -1,0 +1,12 @@
+scan-build: Using '/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/build/bin/clang-18' for static analysis
+GEN	libavutil/libavutil.version
+GEN	libswscale/libswscale.version
+GEN	libswresample/libswresample.version
+GEN	libavcodec/libavcodec.version
+GEN	libavformat/libavformat.version
+GEN	libavfilter/libavfilter.version
+GEN	libavdevice/libavdevice.version
+make: *** No rule to make target '/home/cc/ai2sec/KNighter/src/avfilter/af_dynaudnorm.o'.  Stop.
+scan-build: Analysis run complete.
+scan-build: Removing directory '/home/cc/ai2sec/KNighter/results/ffmpeg-refined/KN-Misuse-223b5e8a-0/scan-reports-0/report--home-cc-ai2sec-KNighter-src-avfilter-af_dynaudnorm/2026-04-30-065553-2046806-1' because it contains no reports.
+scan-build: No bugs found.

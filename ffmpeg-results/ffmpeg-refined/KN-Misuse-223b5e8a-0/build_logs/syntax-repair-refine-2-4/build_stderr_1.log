@@ -1,0 +1,31 @@
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In function ‘bool {anonymous}::isDefinitelyPositiveExpr(const clang::Expr*, clang::ento::CheckerContext&)’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:186:32: error: ‘clang::APValue::APFloat’ {aka ‘class llvm::APFloat’} has no member named ‘isPos’
+  186 |       return ER.Val.getFloat().isPos() && !ER.Val.getFloat().isZero();
+      |                                ^~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:192:27: error: ‘class llvm::APFloat’ has no member named ‘isPos’
+  192 |     return FL->getValue().isPos() && !FL->getValue().isZero();
+      |                           ^~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In member function ‘bool {anonymous}::SAGenTestChecker::isFalsePositive(const clang::BinaryOperator*, clang::ento::CheckerContext&, const clang::ento::MemRegion*) const’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:500:3: error: ‘Optional’ was not declared in this scope; did you mean ‘clang::ObjCImplementationControl::Optional’?
+  500 |   Optional<DefinedSVal> DSV = DenomVal.getAs<DefinedSVal>();
+      |   ^~~~~~~~
+      |   clang::ObjCImplementationControl::Optional
+In file included from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/AST/ExprObjC.h:18,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/Analysis/CFG.h:19,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/Analysis/AnalysisDeclContext.h:22,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/Analysis/PathDiagnostic.h:17,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/BugReporter/BugReporter.h:17,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:1:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/AST/DeclObjC.h:118:56: note: ‘clang::ObjCImplementationControl::Optional’ declared here
+  118 | enum class ObjCImplementationControl { None, Required, Optional };
+      |                                                        ^~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:500:23: error: expected primary-expression before ‘>’ token
+  500 |   Optional<DefinedSVal> DSV = DenomVal.getAs<DefinedSVal>();
+      |                       ^
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:500:25: error: ‘DSV’ was not declared in this scope
+  500 |   Optional<DefinedSVal> DSV = DenomVal.getAs<DefinedSVal>();
+      |                         ^~~
+make[3]: *** [tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/build.make:79: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/SAGenTestChecker.cpp.o] Error 1
+make[2]: *** [CMakeFiles/Makefile2:35772: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/all] Error 2
+make[1]: *** [CMakeFiles/Makefile2:35779: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/rule] Error 2
+make: *** [Makefile:7495: SAGenTestPlugin] Error 2

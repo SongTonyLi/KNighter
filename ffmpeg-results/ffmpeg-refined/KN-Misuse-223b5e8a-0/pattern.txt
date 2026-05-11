@@ -1,0 +1,23 @@
+## Bug Pattern
+
+The bug pattern is **performing floating-point division using an accumulated or computed denominator without checking whether it is zero**.
+
+In this code, `norm_fac` is built by summing per-band contributions:
+
+```c
+norm_fac += band->norm_fac;
+```
+
+and is later used as a divisor:
+
+```c
+norm_fac = 1.0f / norm_fac;
+```
+
+If all contributions are zero, `norm_fac` remains `0.0f`, causing a divide-by-zero. This commonly happens when a normalization/scaling factor is derived from runtime data and the code assumes it must be nonzero, but valid inputs can make the sum/product remain zero.
+
+So the specific bug pattern is:
+
+- compute an aggregate normalization factor from data-dependent values,
+- later invert or divide by it,
+- **without guarding against the aggregate being zero**.

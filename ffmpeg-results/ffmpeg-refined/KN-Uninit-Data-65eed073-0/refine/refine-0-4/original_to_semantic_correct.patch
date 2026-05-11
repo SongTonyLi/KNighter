@@ -1,0 +1,259 @@
+--- original_code.cpp+++ semantic_correct_refine_code.cpp@@ -48,12 +48,18 @@   bool isAvioReadCall(const CallEvent &Call, CheckerContext &C) const;
+   bool isMemcmpCall(const CallEvent &Call, CheckerContext &C) const;
+ 
+-  const MemRegion *getTrackedBaseRegionFromExpr(const Expr *E,
+-                                                CheckerContext &C) const;
+-  const MemRegion *getTrackedBaseRegionFromAvioReadCall(const CallExpr *CE,
+-                                                        CheckerContext &C) const;
++  const MemRegion *getTrackedRegionFromExpr(const Expr *E,
++                                            CheckerContext &C) const;
++  const MemRegion *getTrackedRegionFromAvioReadCall(const CallExpr *CE,
++                                                    CheckerContext &C) const;
+   const CallExpr *getAvioReadCallFromRetVar(const Expr *CondE,
+                                             CheckerContext &C) const;
++
++  bool isSubRegionOf(const MemRegion *Inner, const MemRegion *Outer) const;
++  bool regionsOverlapOrSubregion(const MemRegion *A, const MemRegion *B) const;
++  bool isTrackedUse(const MemRegion *UseMR, const MemRegion *TrackedMR) const;
++  bool isFalsePositive(const MemRegion *UseMR, const MemRegion *TrackedMR,
++                       const Stmt *S, CheckerContext &C) const;
+ 
+   void clearTrackedRegion(const MemRegion *MR, CheckerContext &C) const;
+   void reportBug(const MemRegion *MR, const Stmt *S, CheckerContext &C,
+@@ -85,8 +91,8 @@ }
+ 
+ const MemRegion *
+-SAGenTestChecker::getTrackedBaseRegionFromExpr(const Expr *E,
+-                                               CheckerContext &C) const {
++SAGenTestChecker::getTrackedRegionFromExpr(const Expr *E,
++                                           CheckerContext &C) const {
+   if (!E)
+     return nullptr;
+ 
+@@ -94,16 +100,12 @@   if (!MR)
+     return nullptr;
+ 
+-  MR = MR->getBaseRegion();
+-  if (!MR)
+-    return nullptr;
+-
+   return MR;
+ }
+ 
+ const MemRegion *
+-SAGenTestChecker::getTrackedBaseRegionFromAvioReadCall(const CallExpr *CE,
+-                                                       CheckerContext &C) const {
++SAGenTestChecker::getTrackedRegionFromAvioReadCall(const CallExpr *CE,
++                                                   CheckerContext &C) const {
+   if (!CE)
+     return nullptr;
+   if (!isAvioReadCall(CE, C))
+@@ -111,7 +113,7 @@   if (CE->getNumArgs() != 3)
+     return nullptr;
+ 
+-  return getTrackedBaseRegionFromExpr(CE->getArg(1), C);
++  return getTrackedRegionFromExpr(CE->getArg(1), C);
+ }
+ 
+ const CallExpr *
+@@ -142,20 +144,64 @@   return nullptr;
+ }
+ 
++bool SAGenTestChecker::isSubRegionOf(const MemRegion *Inner,
++                                     const MemRegion *Outer) const {
++  if (!Inner || !Outer)
++    return false;
++
++  const MemRegion *Cur = Inner;
++  while (Cur) {
++    if (Cur == Outer)
++      return true;
++    const SubRegion *SR = dyn_cast<SubRegion>(Cur);
++    if (!SR)
++      break;
++    Cur = SR->getSuperRegion();
++  }
++  return false;
++}
++
++bool SAGenTestChecker::regionsOverlapOrSubregion(const MemRegion *A,
++                                                 const MemRegion *B) const {
++  if (!A || !B)
++    return false;
++
++  if (A == B)
++    return true;
++
++  return isSubRegionOf(A, B) || isSubRegionOf(B, A);
++}
++
++bool SAGenTestChecker::isTrackedUse(const MemRegion *UseMR,
++                                    const MemRegion *TrackedMR) const {
++  return regionsOverlapOrSubregion(UseMR, TrackedMR);
++}
++
++bool SAGenTestChecker::isFalsePositive(const MemRegion *UseMR,
++                                       const MemRegion *TrackedMR,
++                                       const Stmt *S,
++                                       CheckerContext &C) const {
++  if (!UseMR || !TrackedMR || !S)
++    return true;
++
++  // The key false-positive pattern: same aggregate base, but different sibling
++  // fields/subregions (e.g. ape->md5 tracked, but ape->frames[i].size used).
++  if (!regionsOverlapOrSubregion(UseMR, TrackedMR))
++    return true;
++
++  return false;
++}
++
+ void SAGenTestChecker::clearTrackedRegion(const MemRegion *MR,
+                                           CheckerContext &C) const {
+   if (!MR)
+     return;
+ 
+   ProgramStateRef State = C.getState();
+-  const MemRegion *Base = MR->getBaseRegion();
+-  if (!Base)
+-    return;
+-
+-  if (!State->get<ShortReadDstMap>(Base))
+-    return;
+-
+-  State = State->remove<ShortReadDstMap>(Base);
++  if (!State->get<ShortReadDstMap>(MR))
++    return;
++
++  State = State->remove<ShortReadDstMap>(MR);
+   C.addTransition(State);
+ }
+ 
+@@ -189,7 +235,7 @@   if (CE->getNumArgs() != 3)
+     return;
+ 
+-  const MemRegion *DstMR = getTrackedBaseRegionFromExpr(CE->getArg(1), C);
++  const MemRegion *DstMR = getTrackedRegionFromExpr(CE->getArg(1), C);
+   if (!DstMR)
+     return;
+ 
+@@ -208,7 +254,7 @@ 
+   const CallExpr *DirectCall = findSpecificTypeInChildren<CallExpr>(Condition);
+   if (DirectCall && isAvioReadCall(DirectCall, C)) {
+-    const MemRegion *DstMR = getTrackedBaseRegionFromAvioReadCall(DirectCall, C);
++    const MemRegion *DstMR = getTrackedRegionFromAvioReadCall(DirectCall, C);
+     if (DstMR)
+       clearTrackedRegion(DstMR, C);
+     return;
+@@ -222,7 +268,7 @@   if (!TrackedCall)
+     return;
+ 
+-  const MemRegion *DstMR = getTrackedBaseRegionFromAvioReadCall(TrackedCall, C);
++  const MemRegion *DstMR = getTrackedRegionFromAvioReadCall(TrackedCall, C);
+   if (!DstMR)
+     return;
+ 
+@@ -244,17 +290,25 @@     if (!ArgE)
+       continue;
+ 
+-    const MemRegion *MR = getTrackedBaseRegionFromExpr(ArgE, C);
+-    if (!MR)
+-      continue;
+-
+-    const CallExpr *const *TrackedBy = State->get<ShortReadDstMap>(MR);
+-    if (!TrackedBy)
+-      continue;
+-
+-    reportBug(MR, Call.getOriginExpr(),
+-              C, "buffer read by avio_read may be partially uninitialized");
+-    return;
++    const MemRegion *UseMR = getTrackedRegionFromExpr(ArgE, C);
++    if (!UseMR)
++      continue;
++
++    for (const auto &Entry : State->get<ShortReadDstMap>()) {
++      const MemRegion *TrackedMR = Entry.first;
++      if (!TrackedMR)
++        continue;
++
++      if (!isTrackedUse(UseMR, TrackedMR))
++        continue;
++
++      if (isFalsePositive(UseMR, TrackedMR, Call.getOriginExpr(), C))
++        continue;
++
++      reportBug(TrackedMR, Call.getOriginExpr(),
++                C, "buffer read by avio_read may be partially uninitialized");
++      return;
++    }
+   }
+ }
+ 
+@@ -262,36 +316,41 @@                                      CheckerContext &C) const {
+   ProgramStateRef State = C.getState();
+ 
+-  const MemRegion *MR = Loc.getAsRegion();
+-  if (!MR)
+-    return;
+-
+-  MR = MR->getBaseRegion();
+-  if (!MR)
+-    return;
+-
+-  const CallExpr *const *TrackedBy = State->get<ShortReadDstMap>(MR);
+-  if (!TrackedBy)
+-    return;
+-
+-  if (IsLoad) {
+-    reportBug(MR, S, C,
+-              "buffer read by avio_read may be partially uninitialized");
+-    return;
+-  }
+-
+-  if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(S)) {
+-    if (!ASE->getBase())
+-      return;
+-
+-    const MemRegion *BaseMR = getTrackedBaseRegionFromExpr(ASE->getBase(), C);
+-    if (!BaseMR)
+-      return;
+-
+-    if (State->get<ShortReadDstMap>(BaseMR)) {
+-      reportBug(BaseMR, S, C,
++  const MemRegion *UseMR = Loc.getAsRegion();
++  if (!UseMR)
++    return;
++
++  for (const auto &Entry : State->get<ShortReadDstMap>()) {
++    const MemRegion *TrackedMR = Entry.first;
++    if (!TrackedMR)
++      continue;
++
++    if (!isTrackedUse(UseMR, TrackedMR))
++      continue;
++
++    if (isFalsePositive(UseMR, TrackedMR, S, C))
++      continue;
++
++    if (IsLoad) {
++      reportBug(TrackedMR, S, C,
+                 "buffer read by avio_read may be partially uninitialized");
+       return;
++    }
++
++    if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(S)) {
++      if (!ASE->getBase())
++        return;
++
++      const MemRegion *BaseMR = getTrackedRegionFromExpr(ASE->getBase(), C);
++      if (!BaseMR)
++        return;
++
++      if (isTrackedUse(BaseMR, TrackedMR) &&
++          !isFalsePositive(BaseMR, TrackedMR, S, C)) {
++        reportBug(TrackedMR, S, C,
++                  "buffer read by avio_read may be partially uninitialized");
++        return;
++      }
+     }
+   }
+ }

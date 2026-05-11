@@ -1,0 +1,68 @@
+Refinment Plan:
+
+1. Root cause of the false positive
+   - The checker tracks every destination buffer passed to `avio_read()` and later reports on any load from that region.
+   - This is too broad: it conflates the target bug pattern with unrelated APIs and helper-managed string buffers.
+   - In the reported false positive, the warning fires on `cursor = bp.str;` after `avio_read_to_bprint(...)`. That is not the target pattern:
+     - it is not a raw fixed-size destination buffer consumed as fully initialized,
+     - the helper manages the string buffer,
+     - the code checks `err < 0`,
+     - EOF/shortness is expected behavior for this API.
+   - The current checker identifies APIs via source-text substring matching:
+     - `ExprHasName(..., "avio_read", ...)`
+     - This can accidentally match unrelated APIs such as `avio_read_to_bprint`.
+   - The checker also reports on every load from a tracked region via `checkLocation`, which is overly aggressive and causes many non-target reports.
+
+2. Fix strategy
+   - Replace loose substring-based function detection with exact callee-name matching using `CallEvent::getCalleeIdentifier()`.
+   - Track only true `avio_read()` calls, not APIs whose names merely contain `avio_read`.
+   - Introduce state to remember whether the `avio_read()` result has been validated by control flow.
+   - Only report on “meaningful consumption” of the destination buffer:
+     - direct dereference / array indexing,
+     - `memcmp()`-style use,
+     - known dereference calls.
+   - Avoid reporting on benign pointer propagation such as `cursor = bp.str;`.
+   - Keep the checker able to detect the target buggy cases:
+     - `header[0]`, `header[1]` after unchecked `avio_read()`,
+     - `memcmp(version, ...)`,
+     - `value[chunk_size - 1] = 0`.
+
+3. Key changes
+   - Added exact function recognizers:
+     - `isNamedCall`
+     - `isAvioReadCall`
+     - `isMemcmpCall`
+     - `isSafeExactReadCall` for `ffio_read_size`
+   - Added `REGISTER_SET_WITH_PROGRAMSTATE(CheckedShortReadRegions, ...)`
+     - marks destination regions as validated.
+   - Added tracking helpers to normalize regions to their base region where appropriate.
+   - Refined `checkBranchCondition`:
+     - clears/marks tracked region only when the condition directly uses the `avio_read()` call or a variable initialized from it.
+   - Refined `checkLocation`:
+     - report only on loads,
+     - suppress pure pointer-copy / declaration-init false positives,
+     - report on array subscripts and direct element/field loads from tracked buffers.
+   - Refined `checkPreCall`:
+     - report on `memcmp()` and known dereference consumers.
+   - Clear tracking on `ffio_read_size(...)` because that API is the safe exact-read helper from the patch.
+   - Keep compatibility with Clang-18 APIs and do not remove includes.
+
+4. Edge cases / regressions considered
+   - Direct condition check:
+     - `if (avio_read(pb, buf, n) != n) return err;`
+     - region gets marked checked.
+   - Return-value variable:
+     - `ret = avio_read(...); if (ret < 0) ...`
+     - supported if the condition references a variable whose initializer is the `avio_read()` call.
+   - Safe helper:
+     - `ffio_read_size(pb, buf, n)` should not be tracked as buggy.
+   - Helper APIs containing `avio_read` in the name:
+     - no longer matched.
+   - Still detects buggy code:
+     - dss: `header[0]`, `header[1]`
+     - mlv: `memcmp(version, ...)`
+     - dtshd: `value[chunk_size - 1] = 0`
+
+Refined Code:
+```cpp
+```

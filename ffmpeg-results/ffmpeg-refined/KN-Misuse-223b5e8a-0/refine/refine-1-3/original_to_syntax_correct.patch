@@ -1,0 +1,266 @@
+--- original_code.cpp+++ syntax_correct_refine_code.cpp@@ -22,7 +22,23 @@ using namespace ento;
+ using namespace taint;
+ 
++// Tracks whether a floating local started from zero and is still a candidate
++// for the "aggregate may stay zero" pattern.
+ REGISTER_MAP_WITH_PROGRAMSTATE(AggregateDenomMap, const MemRegion *, bool)
++
++// Tracks whether we have actually seen an aggregate-building update for the
++// variable, such as:
++//   x += y;
++//   x = x + y;
++//   x = y + x;
++REGISTER_MAP_WITH_PROGRAMSTATE(AggregateBuiltMap, const MemRegion *, bool)
++
++// Tracks whether the candidate has been guarded against zero in a branch-like
++// condition, e.g.
++//   if (x) ...
++//   if (x != 0) ...
++//   if (0 != x) ...
++REGISTER_MAP_WITH_PROGRAMSTATE(AggregateGuardedMap, const MemRegion *, bool)
+ 
+ namespace {
+ 
+@@ -45,8 +61,9 @@     return IL->getValue().isZero();
+ 
+   llvm::APSInt Res;
+-  if (EvaluateExprToInt(Res, E, C))
++  if (EvaluateExprToInt(Res, E, C)) {
+     return Res == 0;
++  }
+ 
+   return false;
+ }
+@@ -63,8 +80,7 @@   if (!MR)
+     return nullptr;
+ 
+-  MR = MR->getBaseRegion();
+-  return MR;
++  return MR->getBaseRegion();
+ }
+ 
+ static const MemRegion *getRegionFromTrackedExpr(const Expr *E, CheckerContext &C) {
+@@ -75,12 +91,28 @@   if (!E)
+     return nullptr;
+ 
++  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
++    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
++      return getVarRegionFromDecl(VD, C);
++    }
++  }
++
+   const MemRegion *MR = getMemRegionFromExpr(E, C);
+   if (!MR)
+     return nullptr;
+ 
+-  MR = MR->getBaseRegion();
+-  return MR;
++  return MR->getBaseRegion();
++}
++
++static bool exprRefersToRegion(const Expr *E, const MemRegion *MR, CheckerContext &C) {
++  if (!E || !MR)
++    return false;
++
++  const MemRegion *ExprMR = getRegionFromTrackedExpr(E, C);
++  if (!ExprMR)
++    return false;
++
++  return ExprMR == MR;
+ }
+ 
+ static const MemRegion *getTrackedRegionFromZeroGuardCond(const Expr *Cond,
+@@ -92,6 +124,7 @@   if (!Cond)
+     return nullptr;
+ 
++  // if (x) or if (!x) is a zero/non-zero style guard for scalar values.
+   if (const auto *DRE = dyn_cast<DeclRefExpr>(Cond)) {
+     if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+       if (isRealFloatingType(VD->getType()))
+@@ -99,8 +132,20 @@     }
+   }
+ 
++  if (const auto *UO = dyn_cast<UnaryOperator>(Cond)) {
++    if (UO->getOpcode() == UO_LNot) {
++      const Expr *Sub = UO->getSubExpr()->IgnoreParenImpCasts();
++      if (const auto *DRE = dyn_cast<DeclRefExpr>(Sub)) {
++        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
++          if (isRealFloatingType(VD->getType()))
++            return getVarRegionFromDecl(VD, C);
++        }
++      }
++    }
++  }
++
+   if (const auto *BO = dyn_cast<BinaryOperator>(Cond)) {
+-    if (BO->getOpcode() == BO_EQ || BO->getOpcode() == BO_NE) {
++    if (BO->isComparisonOp()) {
+       const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
+       const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
+ 
+@@ -127,6 +172,36 @@   return nullptr;
+ }
+ 
++static bool isAggregateUpdateForRegion(const BinaryOperator *BO,
++                                       const MemRegion *LHSReg,
++                                       CheckerContext &C) {
++  if (!BO || !LHSReg)
++    return false;
++
++  // x += y
++  if (BO->getOpcode() == BO_AddAssign) {
++    return exprRefersToRegion(BO->getLHS(), LHSReg, C);
++  }
++
++  // x = x + y  or  x = y + x
++  if (BO->getOpcode() != BO_Assign)
++    return false;
++
++  if (!exprRefersToRegion(BO->getLHS(), LHSReg, C))
++    return false;
++
++  const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
++  const auto *RHSBO = dyn_cast<BinaryOperator>(RHS);
++  if (!RHSBO)
++    return false;
++
++  if (RHSBO->getOpcode() != BO_Add)
++    return false;
++
++  return exprRefersToRegion(RHSBO->getLHS(), LHSReg, C) ||
++         exprRefersToRegion(RHSBO->getRHS(), LHSReg, C);
++}
++
+ class SAGenTestChecker
+     : public Checker<check::PostStmt<DeclStmt>,
+                      check::Bind,
+@@ -145,9 +220,34 @@   void checkPreStmt(const BinaryOperator *BO, CheckerContext &C) const;
+ 
+ private:
++  bool isTrackedAggregateCandidate(const MemRegion *MR,
++                                   ProgramStateRef State) const;
++  bool isFalsePositive(const BinaryOperator *BO,
++                       const MemRegion *MR,
++                       CheckerContext &C) const;
+   void reportBug(const BinaryOperator *BO, CheckerContext &C,
+                  const MemRegion *MR) const;
+ };
++
++bool SAGenTestChecker::isTrackedAggregateCandidate(const MemRegion *MR,
++                                                   ProgramStateRef State) const {
++  if (!MR || !State)
++    return false;
++
++  const bool *Tracked = State->get<AggregateDenomMap>(MR);
++  if (!Tracked || !*Tracked)
++    return false;
++
++  const bool *Built = State->get<AggregateBuiltMap>(MR);
++  if (!Built || !*Built)
++    return false;
++
++  const bool *Guarded = State->get<AggregateGuardedMap>(MR);
++  if (Guarded && *Guarded)
++    return false;
++
++  return true;
++}
+ 
+ void SAGenTestChecker::checkPostStmt(const DeclStmt *DS,
+                                      CheckerContext &C) const {
+@@ -175,6 +275,8 @@       continue;
+ 
+     State = State->set<AggregateDenomMap>(MR, true);
++    State = State->remove<AggregateBuiltMap>(MR);
++    State = State->remove<AggregateGuardedMap>(MR);
+     Changed = true;
+   }
+ 
+@@ -205,21 +307,42 @@   if (!BindExpr)
+     return;
+ 
++  bool Changed = false;
++
++  if (const auto *BO = dyn_cast<BinaryOperator>(BindExpr)) {
++    if (isAggregateUpdateForRegion(BO, LHSReg, C)) {
++      State = State->set<AggregateBuiltMap>(LHSReg, true);
++      Changed = true;
++    }
++  }
++
++  // Preserve candidate tracking for zero re-assignment.
+   if (isZeroLiteralExpr(BindExpr, C)) {
+-    C.addTransition(State);
+-    return;
+-  }
+-
++    if (Changed)
++      C.addTransition(State);
++    else
++      C.addTransition(State);
++    return;
++  }
++
++  // If the variable is assigned a compile-time non-zero constant directly,
++  // this is no longer the target "aggregate starts at zero and may stay zero"
++  // pattern.
+   llvm::APFloat F(0.0);
+   if (BindExpr->EvaluateAsFloat(F, C.getASTContext())) {
+     if (!F.isZero()) {
+       State = State->remove<AggregateDenomMap>(LHSReg);
++      State = State->remove<AggregateBuiltMap>(LHSReg);
++      State = State->remove<AggregateGuardedMap>(LHSReg);
+       C.addTransition(State);
+       return;
+     }
+   }
+ 
+-  C.addTransition(State);
++  if (Changed)
++    C.addTransition(State);
++  else
++    C.addTransition(State);
+ }
+ 
+ void SAGenTestChecker::checkBranchCondition(const Stmt *Condition,
+@@ -237,8 +360,27 @@   if (!Tracked || !*Tracked)
+     return;
+ 
+-  State = State->remove<AggregateDenomMap>(MR);
++  State = State->set<AggregateGuardedMap>(MR, true);
+   C.addTransition(State);
++}
++
++bool SAGenTestChecker::isFalsePositive(const BinaryOperator *BO,
++                                       const MemRegion *MR,
++                                       CheckerContext &C) const {
++  if (!BO || !MR)
++    return true;
++
++  // The checker is intentionally narrow: only warn when the denominator of the
++  // floating-point division is the tracked aggregate variable itself.
++  const Expr *Denom = BO->getRHS();
++  if (!Denom)
++    return true;
++
++  Denom = Denom->IgnoreParenImpCasts();
++  if (!exprRefersToRegion(Denom, MR, C))
++    return true;
++
++  return false;
+ }
+ 
+ void SAGenTestChecker::checkPreStmt(const BinaryOperator *BO,
+@@ -276,8 +418,11 @@   if (!MR)
+     return;
+ 
+-  const bool *Tracked = C.getState()->get<AggregateDenomMap>(MR);
+-  if (!Tracked || !*Tracked)
++  ProgramStateRef State = C.getState();
++  if (!isTrackedAggregateCandidate(MR, State))
++    return;
++
++  if (isFalsePositive(BO, MR, C))
+     return;
+ 
+   reportBug(BO, C, MR);

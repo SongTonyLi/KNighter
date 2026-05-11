@@ -1,0 +1,35 @@
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In member function ‘clang::ento::ProgramStateRef {anonymous}::SAGenTestChecker::evalAssume(clang::ento::ProgramStateRef, clang::ento::SVal, bool) const’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:478:72: error: taking address of rvalue [-fpermissive]
+  478 |   const auto *SymVal = dyn_cast<nonloc::SymbolVal>(&DSV->castAs<NonLoc>());
+      |                                                     ~~~~~~~~~~~~~~~~~~~^~
+In file included from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/Basic/LLVM.h:21,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/AST/APValue.h:16,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/AST/Stmt.h:16,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/Analysis/PathDiagnostic.h:16,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/BugReporter/BugReporter.h:17,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:1:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/Support/Casting.h: In instantiation of ‘static bool llvm::isa_impl<To, From, Enabler>::doit(const From&) [with To = clang::ento::nonloc::SymbolVal; From = clang::ento::NonLoc; Enabler = void]’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/Support/Casting.h:110:36:   required from ‘static bool llvm::isa_impl_cl<To, const From*>::doit(const From*) [with To = clang::ento::nonloc::SymbolVal; From = clang::ento::NonLoc]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/Support/Casting.h:137:41:   required from ‘static bool llvm::isa_impl_wrap<To, FromTy, FromTy>::doit(const FromTy&) [with To = clang::ento::nonloc::SymbolVal; FromTy = const clang::ento::NonLoc*]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/Support/Casting.h:129:13:   required from ‘static bool llvm::isa_impl_wrap<To, From, SimpleFrom>::doit(const From&) [with To = clang::ento::nonloc::SymbolVal; From = clang::ento::NonLoc* const; SimpleFrom = const clang::ento::NonLoc*]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/Support/Casting.h:257:62:   required from ‘static bool llvm::CastIsPossible<To, From, Enable>::isPossible(const From&) [with To = clang::ento::nonloc::SymbolVal; From = clang::ento::NonLoc*; Enable = void]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/Support/Casting.h:493:26:   required from ‘static llvm::CastInfo<To, From, Enable>::CastReturnType llvm::CastInfo<To, From, Enable>::doCastIfPossible(const From&) [with To = clang::ento::nonloc::SymbolVal; From = clang::ento::NonLoc*; Enable = void; CastReturnType = clang::ento::nonloc::SymbolVal*]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/Support/Casting.h:663:48:   required from ‘decltype(auto) llvm::dyn_cast(From*) [with To = clang::ento::nonloc::SymbolVal; From = clang::ento::NonLoc]’
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:478:51:   required from here
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/llvm/include/llvm/Support/Casting.h:64:65: error: cannot convert ‘const clang::ento::NonLoc*’ to ‘clang::ento::SVal’
+   64 |   static inline bool doit(const From &Val) { return To::classof(&Val); }
+      |                                                                 ^~~~
+      |                                                                 |
+      |                                                                 const clang::ento::NonLoc*
+In file included from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/ConstraintManager.h:18,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h:17,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/RangedConstraintManager.h:16,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/BugReporter/BugReporterVisitors.h:19,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/BugReporter/BugReporter.h:21:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/PathSensitive/SVals.h:301:28: note:   initializing argument 1 of ‘static bool clang::ento::nonloc::SymbolVal::classof(clang::ento::SVal)’
+  301 |   static bool classof(SVal V) { return V.getKind() == SymbolValKind; }
+      |                       ~~~~~^
+make[3]: *** [tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/build.make:79: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/SAGenTestChecker.cpp.o] Error 1
+make[2]: *** [CMakeFiles/Makefile2:35772: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/all] Error 2
+make[1]: *** [CMakeFiles/Makefile2:35779: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/rule] Error 2
+make: *** [Makefile:7495: SAGenTestPlugin] Error 2

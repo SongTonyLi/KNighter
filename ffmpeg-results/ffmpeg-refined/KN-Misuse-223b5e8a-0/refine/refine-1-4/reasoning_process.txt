@@ -1,0 +1,60 @@
+Refinment Plan:
+
+1. Root cause of the false positive
+   - The checker uses a very coarse state model:
+     - a floating local initialized to `0` is marked as a possible aggregate denominator,
+     - any branch condition mentioning that variable removes tracking unconditionally,
+     - division is reported whenever the denominator is a tracked variable.
+   - This loses path sensitivity and semantic meaning.
+   - In the false-positive example:
+     ```c
+     if (max > 0.f)
+         zoom = 1. / max;
+     ```
+     the checker does not understand that the branch itself proves the denominator is non-zero on the taken path.
+   - `getTrackedRegionFromZeroGuardCond()` only recognizes:
+     - `if (x)`
+     - `if (x == 0)`
+     - `if (x != 0)`
+     but not:
+     - `if (x > 0)`
+     - `if (x < 0)`
+     - `if (0 < x)`
+     - `if (fabs(x) > 0)`
+   - Worse, `checkBranchCondition()` removes tracking for both successors, which is unsound and can cause missed true positives as well.
+
+2. Fix strategy
+   - Keep the existing aggregate-denominator idea, so the target bug is still detected.
+   - Add proper path-sensitive state for “this variable is known non-zero on the current path”.
+   - Do not destroy aggregate tracking when seeing a guard.
+   - In `checkBranchCondition()`, inspect the branch condition and use the analyzer’s constraint manager to decide whether the condition implies the tracked variable is non-zero on the current path. Then record this in a separate state map.
+   - In `checkPreStmt()` for division:
+     - if denominator is a tracked aggregate variable and is known non-zero on this path, suppress the report;
+     - otherwise report.
+   - Clear the non-zero fact on rebinding, so stale path facts do not survive assignments.
+
+3. Why this preserves the target bug detection
+   - In the buggy AAC case:
+     ```c
+     norm_fac += band->norm_fac;
+     ...
+     norm_fac = 1.0f / norm_fac;
+     ```
+     there is no prior branch proving `norm_fac != 0`, so the variable remains tracked and not path-proven non-zero.
+   - Therefore the checker still reports it.
+   - In the fixed code:
+     ```c
+     norm_fac = norm_fac ? 1.0f / norm_fac : 0;
+     ```
+     the condition `norm_fac` implies non-zero on the true branch, so the division is suppressed there.
+
+4. Edge cases / regressions considered
+   - `if (x > 0) 1/x;` and `if (x < 0) 1/x;` are now handled.
+   - `if (x != 0) 1/x;` remains handled.
+   - `if (x == 0) return; 1/x;` is not fully modeled inter-statement by this checker alone, but CSA’s path splitting plus our branch-state recording helps in common patterns where the division is in the guarded branch. Handling full post-dominator style guard propagation would require a more involved control-flow/state design.
+   - Reassignments clear the “known non-zero” marker to avoid stale suppression.
+   - Compatibility is maintained with Clang-18 APIs; only standard checker callbacks and `ProgramState` traits are used.
+
+Refined Code:
+```cpp
+```

@@ -1,0 +1,52 @@
+Refinment Plan:
+1. Root cause
+   - The checker tracks any local floating variable initialized to `0` as a potential “aggregate denominator”.
+   - It only reports when the denominator expression is a bare `DeclRefExpr`, but its state model is too coarse:
+     - any later non-constant assignment does not clear the tracked state,
+     - any branch mentioning the variable as a condition clears the state unconditionally,
+     - most importantly, it does not verify that the variable was actually used in an aggregate-building pattern such as `x += ...`.
+   - In the false positive, the reported risky operation is not the target pattern at all. The code divides by `peak`, while `peak` is guarded by `if (peak > limit)` and `limit` is known positive. This kind of path should not be modeled as the “aggregate factor remains zero” bug.
+   - More generally, the current checker is pattern-insensitive: “float local initialized to 0 and later used as divisor” is much broader than the intended bug shape.
+
+2. Fix strategy
+   - Track richer per-region state instead of a single bool:
+     - whether the variable was initialized to zero,
+     - whether it has subsequently participated in an aggregate update (`+=`, `-=`, or self-referential `x = x + ...`, `x = x - ...`),
+     - whether it has been zero-guarded,
+     - whether it was overwritten with a known nonzero value.
+   - Only report on divisions where the denominator is a tracked variable that:
+     - started from zero,
+     - was used in an aggregate-building update,
+     - is not known guarded against zero.
+   - Add explicit false-positive filtering for dominating positive guards such as:
+     - `if (peak > limit)` with `limit` provably positive,
+     - `if (peak > 0)`,
+     - and similar comparisons proving denominator nonzero on the current path.
+   - Use `evalAssume` to clear suspicion when constraints prove a tracked symbol is nonzero on the current branch.
+   - Keep compatibility with Clang-18 APIs.
+
+3. Edge cases / regressions
+   - Preserve detection of the target bug:
+     - `float norm_fac = 0.0f;`
+     - `norm_fac += band->norm_fac;`
+     - later `1.0f / norm_fac;`
+     - no zero guard before division.
+   - Avoid suppressing valid bugs where the variable is aggregate-built and only checked in an unrelated condition.
+   - Handle ternary fixes such as `norm_fac ? 1.0f / norm_fac : 0` by recognizing the branch condition as a zero/nonzero guard.
+   - Do not warn on plain local temporaries initialized to zero but not aggregate-built.
+
+Refined Code:
+```cpp
+```
+
+Why this fixes the false positive:
+- `peak` in `af_alimiter.c` is not initialized/tracked as an aggregate factor built by accumulation.
+- Even if a similar variable were tracked, path constraints and branch reasoning now suppress warnings when the denominator is proven nonzero, e.g. under `if (peak > limit)` with positive `limit`.
+- The checker now aligns with the intended bug shape instead of warning on arbitrary float divisions.
+
+Why it still detects the target bug:
+- `norm_fac` is zero-initialized.
+- It is updated via `norm_fac += band->norm_fac;`, so `AggregateUpdated` becomes true.
+- The later `1.0f / norm_fac` uses the tracked variable as denominator.
+- Without a preceding zero/nonzero guard, the checker still reports.
+- After the patch `norm_fac ? 1.0f / norm_fac : 0`, the condition marks it guarded/nonzero on the division path, suppressing the warning.

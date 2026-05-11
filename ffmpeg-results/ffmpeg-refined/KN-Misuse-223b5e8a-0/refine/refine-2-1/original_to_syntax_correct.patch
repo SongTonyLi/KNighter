@@ -1,0 +1,329 @@
+--- original_code.cpp+++ syntax_correct_refine_code.cpp@@ -23,6 +23,7 @@ using namespace taint;
+ 
+ REGISTER_MAP_WITH_PROGRAMSTATE(AggregateDenomMap, const MemRegion *, bool)
++REGISTER_MAP_WITH_PROGRAMSTATE(ZeroGuardedMap, const MemRegion *, bool)
+ 
+ namespace {
+ 
+@@ -45,8 +46,30 @@     return IL->getValue().isZero();
+ 
+   llvm::APSInt Res;
++  if (EvaluateExprToInt(Res, E, C)) {
++    return Res == 0;
++  }
++
++  return false;
++}
++
++static bool isOneLiteralExpr(const Expr *E, CheckerContext &C) {
++  if (!E)
++    return false;
++
++  E = E->IgnoreParenImpCasts();
++  if (!E)
++    return false;
++
++  if (const auto *FL = dyn_cast<FloatingLiteral>(E))
++    return FL->getValue().isExactlyValue(1.0);
++
++  if (const auto *IL = dyn_cast<IntegerLiteral>(E))
++    return IL->getValue() == 1;
++
++  llvm::APSInt Res;
+   if (EvaluateExprToInt(Res, E, C))
+-    return Res == 0;
++    return Res == 1;
+ 
+   return false;
+ }
+@@ -63,8 +86,7 @@   if (!MR)
+     return nullptr;
+ 
+-  MR = MR->getBaseRegion();
+-  return MR;
++  return MR->getBaseRegion();
+ }
+ 
+ static const MemRegion *getRegionFromTrackedExpr(const Expr *E, CheckerContext &C) {
+@@ -79,8 +101,56 @@   if (!MR)
+     return nullptr;
+ 
+-  MR = MR->getBaseRegion();
+-  return MR;
++  return MR->getBaseRegion();
++}
++
++static StringRef getVarName(const VarDecl *VD) {
++  if (!VD || !VD->getIdentifier())
++    return StringRef();
++  return VD->getName();
++}
++
++static bool nameLooksLikeAggregateNormFactor(StringRef N) {
++  if (N.empty())
++    return false;
++  return N.contains_insensitive("norm") ||
++         N.contains_insensitive("fac") ||
++         N.contains_insensitive("factor") ||
++         N.contains_insensitive("scale") ||
++         N.contains_insensitive("ratio") ||
++         N.contains_insensitive("inv");
++}
++
++static bool exprLooksLikeNormContribution(const Expr *E, CheckerContext &C) {
++  if (!E)
++    return false;
++
++  if (ExprHasName(E, "norm", C) ||
++      ExprHasName(E, "fac", C) ||
++      ExprHasName(E, "factor", C) ||
++      ExprHasName(E, "scale", C) ||
++      ExprHasName(E, "ratio", C))
++    return true;
++
++  return false;
++}
++
++static const VarDecl *getReferencedFloatVar(const Expr *E) {
++  if (!E)
++    return nullptr;
++  E = E->IgnoreParenImpCasts();
++
++  const auto *DRE = dyn_cast_or_null<DeclRefExpr>(E);
++  if (!DRE)
++    return nullptr;
++
++  const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
++  if (!VD)
++    return nullptr;
++  if (!isRealFloatingType(VD->getType()))
++    return nullptr;
++
++  return VD;
+ }
+ 
+ static const MemRegion *getTrackedRegionFromZeroGuardCond(const Expr *Cond,
+@@ -92,11 +162,8 @@   if (!Cond)
+     return nullptr;
+ 
+-  if (const auto *DRE = dyn_cast<DeclRefExpr>(Cond)) {
+-    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+-      if (isRealFloatingType(VD->getType()))
+-        return getVarRegionFromDecl(VD, C);
+-    }
++  if (const auto *VD = getReferencedFloatVar(Cond)) {
++    return getVarRegionFromDecl(VD, C);
+   }
+ 
+   if (const auto *BO = dyn_cast<BinaryOperator>(Cond)) {
+@@ -105,26 +172,98 @@       const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
+ 
+       if (isZeroLiteralExpr(LHS, C)) {
+-        if (const auto *DRE = dyn_cast<DeclRefExpr>(RHS)) {
+-          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+-            if (isRealFloatingType(VD->getType()))
+-              return getVarRegionFromDecl(VD, C);
+-          }
+-        }
++        if (const auto *VD = getReferencedFloatVar(RHS))
++          return getVarRegionFromDecl(VD, C);
+       }
+ 
+       if (isZeroLiteralExpr(RHS, C)) {
+-        if (const auto *DRE = dyn_cast<DeclRefExpr>(LHS)) {
+-          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+-            if (isRealFloatingType(VD->getType()))
+-              return getVarRegionFromDecl(VD, C);
+-          }
+-        }
++        if (const auto *VD = getReferencedFloatVar(LHS))
++          return getVarRegionFromDecl(VD, C);
+       }
+     }
+   }
+ 
++  if (const auto *UO = dyn_cast<UnaryOperator>(Cond)) {
++    if (UO->getOpcode() == UO_LNot) {
++      if (const auto *VD = getReferencedFloatVar(UO->getSubExpr()))
++        return getVarRegionFromDecl(VD, C);
++    }
++  }
++
+   return nullptr;
++}
++
++static bool isCandidateAggregateVar(const VarDecl *VD, CheckerContext &C) {
++  if (!VD)
++    return false;
++  if (!VD->hasLocalStorage())
++    return false;
++  if (!isRealFloatingType(VD->getType()))
++    return false;
++  if (!nameLooksLikeAggregateNormFactor(getVarName(VD)))
++    return false;
++
++  const Expr *Init = VD->getInit();
++  if (!Init)
++    return false;
++
++  return isZeroLiteralExpr(Init, C);
++}
++
++static bool isAggregateAccumulationStmt(const BinaryOperator *BO,
++                                        CheckerContext &C,
++                                        const MemRegion *TargetMR) {
++  if (!BO || !TargetMR)
++    return false;
++
++  if (BO->getOpcode() == BO_AddAssign) {
++    const MemRegion *LHSMR = getRegionFromTrackedExpr(BO->getLHS(), C);
++    if (LHSMR != TargetMR)
++      return false;
++
++    if (exprLooksLikeNormContribution(BO->getRHS(), C))
++      return true;
++
++    // Still accept self += something as aggregate-style update for named norm/factor vars.
++    return true;
++  }
++
++  if (BO->getOpcode() == BO_Assign) {
++    const MemRegion *LHSMR = getRegionFromTrackedExpr(BO->getLHS(), C);
++    if (LHSMR != TargetMR)
++      return false;
++
++    const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
++    const auto *Add = dyn_cast<BinaryOperator>(RHS);
++    if (!Add || Add->getOpcode() != BO_Add)
++      return false;
++
++    const MemRegion *A = getRegionFromTrackedExpr(Add->getLHS(), C);
++    const MemRegion *B = getRegionFromTrackedExpr(Add->getRHS(), C);
++
++    if (A == TargetMR || B == TargetMR)
++      return true;
++  }
++
++  return false;
++}
++
++static bool isFalsePositive(const BinaryOperator *BO, CheckerContext &C,
++                            const MemRegion *MR) {
++  if (!BO || !MR)
++    return true;
++
++  ProgramStateRef State = C.getState();
++
++  const bool *Guarded = State->get<ZeroGuardedMap>(MR);
++  if (Guarded && *Guarded)
++    return true;
++
++  const Expr *Numer = BO->getLHS()->IgnoreParenImpCasts();
++  if (!isOneLiteralExpr(Numer, C))
++    return true;
++
++  return false;
+ }
+ 
+ class SAGenTestChecker
+@@ -156,18 +295,7 @@ 
+   for (const Decl *D : DS->decls()) {
+     const auto *VD = dyn_cast<VarDecl>(D);
+-    if (!VD)
+-      continue;
+-    if (!VD->hasLocalStorage())
+-      continue;
+-    if (!isRealFloatingType(VD->getType()))
+-      continue;
+-
+-    const Expr *Init = VD->getInit();
+-    if (!Init)
+-      continue;
+-
+-    if (!isZeroLiteralExpr(Init, C))
++    if (!isCandidateAggregateVar(VD, C))
+       continue;
+ 
+     const MemRegion *MR = getVarRegionFromDecl(VD, C);
+@@ -175,6 +303,7 @@       continue;
+ 
+     State = State->set<AggregateDenomMap>(MR, true);
++    State = State->remove<ZeroGuardedMap>(MR);
+     Changed = true;
+   }
+ 
+@@ -198,27 +327,51 @@     return;
+ 
+   const Expr *BindExpr = dyn_cast_or_null<Expr>(S);
+-  if (!BindExpr)
+-    return;
++  if (!BindExpr) {
++    C.addTransition(State);
++    return;
++  }
+ 
+   BindExpr = BindExpr->IgnoreParenImpCasts();
+-  if (!BindExpr)
+-    return;
+-
++  if (!BindExpr) {
++    C.addTransition(State);
++    return;
++  }
++
++  // Keep tracking if this is another explicit zero assignment.
+   if (isZeroLiteralExpr(BindExpr, C)) {
++    State = State->remove<ZeroGuardedMap>(LHSReg);
+     C.addTransition(State);
+     return;
+   }
+ 
++  // Keep tracking aggregate-style updates such as:
++  //   norm_fac += band->norm_fac;
++  //   norm_fac = norm_fac + x;
++  if (const auto *BO = dyn_cast<BinaryOperator>(BindExpr)) {
++    if (isAggregateAccumulationStmt(BO, C, LHSReg)) {
++      State = State->remove<ZeroGuardedMap>(LHSReg);
++      C.addTransition(State);
++      return;
++    }
++  }
++
++  // If overwritten with a compile-time non-zero constant, stop tracking.
+   llvm::APFloat F(0.0);
+   if (BindExpr->EvaluateAsFloat(F, C.getASTContext())) {
+     if (!F.isZero()) {
+       State = State->remove<AggregateDenomMap>(LHSReg);
++      State = State->remove<ZeroGuardedMap>(LHSReg);
+       C.addTransition(State);
+       return;
+     }
+   }
+ 
++  // Conservative precision improvement:
++  // if the variable is assigned some unrelated expression (not accumulation),
++  // it no longer matches the intended "aggregate norm factor" pattern.
++  State = State->remove<AggregateDenomMap>(LHSReg);
++  State = State->remove<ZeroGuardedMap>(LHSReg);
+   C.addTransition(State);
+ }
+ 
+@@ -237,7 +390,7 @@   if (!Tracked || !*Tracked)
+     return;
+ 
+-  State = State->remove<AggregateDenomMap>(MR);
++  State = State->set<ZeroGuardedMap>(MR, true);
+   C.addTransition(State);
+ }
+ 
+@@ -280,6 +433,11 @@   if (!Tracked || !*Tracked)
+     return;
+ 
++  // Restrict to the intended bug pattern: inversion of an accumulated
++  // normalization/scaling-like factor.
++  if (isFalsePositive(BO, C, MR))
++    return;
++
+   reportBug(BO, C, MR);
+ }
+ 

@@ -1,0 +1,43 @@
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In member function ‘clang::ento::ProgramStateRef {anonymous}::SAGenTestChecker::evalAssume(clang::ento::ProgramStateRef, clang::ento::SVal, bool) const’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:334:56: error: unable to deduce ‘const auto*’ from ‘Cond.clang::ento::SVal::getAs<clang::ento::nonloc::SymbolVal>()’
+  334 |   const auto *StateExpr = Cond.getAs<nonloc::SymbolVal>();
+      |                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:334:57: note:   mismatched types ‘const auto*’ and ‘std::optional<clang::ento::nonloc::SymbolVal>’
+  334 |   const auto *StateExpr = Cond.getAs<nonloc::SymbolVal>();
+      |                                                         ^
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:337:58: error: ‘class clang::ento::ProgramStateManager’ has no member named ‘getLocationContext’
+  337 |   const LocationContext *LCtx = State->getStateManager().getLocationContext();
+      |                                                          ^~~~~~~~~~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:341:25: error: ‘const class clang::LocationContext’ has no member named ‘getCurrentStmt’
+  341 |   const Stmt *S = LCtx->getCurrentStmt();
+      |                         ^~~~~~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In member function ‘void {anonymous}::SAGenTestChecker::reportBug(const clang::BinaryOperator*, clang::ento::CheckerContext&, const clang::ento::MemRegion*) const’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:468:32: error: ‘TrackConstraintBRVisitor’ is not a member of ‘clang::ento::bugreporter’; did you mean ‘clang::ento::TrackConstraintBRVisitor’?
+  468 |     R->addVisitor<bugreporter::TrackConstraintBRVisitor>(BO->getRHS(), false);
+      |                                ^~~~~~~~~~~~~~~~~~~~~~~~
+In file included from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/BugReporter/BugReporter.h:21,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:1:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/BugReporter/BugReporterVisitors.h:394:7: note: ‘clang::ento::TrackConstraintBRVisitor’ declared here
+  394 | class TrackConstraintBRVisitor final : public BugReporterVisitor {
+      |       ^~~~~~~~~~~~~~~~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:468:57: error: no matching function for call to ‘clang::ento::PathSensitiveBugReport::addVisitor<<expression error> >(clang::Expr*, bool)’
+  468 |     R->addVisitor<bugreporter::TrackConstraintBRVisitor>(BO->getRHS(), false);
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/BugReporter/BugReporter.h:498:8: note: candidate: ‘template<class VisitorType, class ... Args> void clang::ento::PathSensitiveBugReport::addVisitor(Args&& ...)’
+  498 |   void addVisitor(Args &&... ConstructorArgs) {
+      |        ^~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/BugReporter/BugReporter.h:498:8: note:   template argument deduction/substitution failed:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:468:57: error: template argument 1 is invalid
+  468 |     R->addVisitor<bugreporter::TrackConstraintBRVisitor>(BO->getRHS(), false);
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: At global scope:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:200:18: warning: ‘{anonymous}::GuardKind {anonymous}::classifyZeroGuardCondition(const clang::Stmt*, const clang::ento::MemRegion*&, clang::ento::CheckerContext&)’ defined but not used [-Wunused-function]
+  200 | static GuardKind classifyZeroGuardCondition(const Stmt *Condition,
+      |                  ^~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:72:25: warning: ‘const clang::ento::MemRegion* {anonymous}::getRegionFromExpr(const clang::Expr*, clang::ento::CheckerContext&)’ defined but not used [-Wunused-function]
+   72 | static const MemRegion *getRegionFromExpr(const Expr *E, CheckerContext &C) {
+      |                         ^~~~~~~~~~~~~~~~~
+make[3]: *** [tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/build.make:79: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/SAGenTestChecker.cpp.o] Error 1
+make[2]: *** [CMakeFiles/Makefile2:35772: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/all] Error 2
+make[1]: *** [CMakeFiles/Makefile2:35779: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/rule] Error 2
+make: *** [Makefile:7495: SAGenTestPlugin] Error 2

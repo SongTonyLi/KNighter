@@ -1,0 +1,40 @@
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: In function ‘bool {anonymous}::conditionImpliesNonZeroOnTrue(const clang::Expr*, const clang::Expr*, clang::ento::CheckerContext&)’:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:128:3: error: ‘Optional’ was not declared in this scope; did you mean ‘clang::ObjCImplementationControl::Optional’?
+  128 |   Optional<DefinedSVal> DCond = CondV.getAs<DefinedSVal>();
+      |   ^~~~~~~~
+      |   clang::ObjCImplementationControl::Optional
+In file included from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/AST/ExprObjC.h:18,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/Analysis/CFG.h:19,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/Analysis/AnalysisDeclContext.h:22,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/Analysis/PathDiagnostic.h:17,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/StaticAnalyzer/Core/BugReporter/BugReporter.h:17,
+                 from /home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:1:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/include/clang/AST/DeclObjC.h:118:56: note: ‘clang::ObjCImplementationControl::Optional’ declared here
+  118 | enum class ObjCImplementationControl { None, Required, Optional };
+      |                                                        ^~~~~~~~
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:128:23: error: expected primary-expression before ‘>’ token
+  128 |   Optional<DefinedSVal> DCond = CondV.getAs<DefinedSVal>();
+      |                       ^
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:128:25: error: ‘DCond’ was not declared in this scope; did you mean ‘Cond’?
+  128 |   Optional<DefinedSVal> DCond = CondV.getAs<DefinedSVal>();
+      |                         ^~~~~
+      |                         Cond
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:137:23: error: expected primary-expression before ‘>’ token
+  137 |   Optional<DefinedSVal> DTV = TV.getAs<DefinedSVal>();
+      |                       ^
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:137:25: error: ‘DTV’ was not declared in this scope; did you mean ‘TV’?
+  137 |   Optional<DefinedSVal> DTV = TV.getAs<DefinedSVal>();
+      |                         ^~~
+      |                         TV
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:143:18: error: ‘const class clang::ento::ProgramState’ has no member named ‘assumeInclusiveRangeDual’; did you mean ‘assumeInclusiveRange’?
+  143 |       TrueState->assumeInclusiveRangeDual(*DTV, llvm::APSInt::get(0), llvm::APSInt::get(0));
+      |                  ^~~~~~~~~~~~~~~~~~~~~~~~
+      |                  assumeInclusiveRange
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp: At global scope:
+/home/cc/ai2sec/KNighter/llvm-project-llvmorg-18.1.8/clang/lib/Analysis/plugins/SAGenTestHandling/SAGenTestChecker.cpp:71:25: warning: ‘const clang::ento::MemRegion* {anonymous}::getRegionFromTrackedExpr(const clang::Expr*, clang::ento::CheckerContext&)’ defined but not used [-Wunused-function]
+   71 | static const MemRegion *getRegionFromTrackedExpr(const Expr *E, CheckerContext &C) {
+      |                         ^~~~~~~~~~~~~~~~~~~~~~~~
+make[3]: *** [tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/build.make:79: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/SAGenTestChecker.cpp.o] Error 1
+make[2]: *** [CMakeFiles/Makefile2:35772: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/all] Error 2
+make[1]: *** [CMakeFiles/Makefile2:35779: tools/clang/lib/Analysis/plugins/SAGenTestHandling/CMakeFiles/SAGenTestPlugin.dir/rule] Error 2
+make: *** [Makefile:7495: SAGenTestPlugin] Error 2

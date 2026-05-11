@@ -1,0 +1,70 @@
+Refinment Plan:
+1. Root cause of the false positive  
+   The checker currently tracks any local floating variable initialized to `0` as a possible “aggregate denominator”, and it only clears that state when it sees a definitely non-zero bind or any branch condition mentioning the variable. This is too coarse.
+
+   In the false positive:
+   - `type34_div` is initialized to `0`
+   - later assigned `1 << get_bits(gb, 2)`, which is always in `{1,2,4,8}`
+   - the division is only reachable when `type34_first == 0`, and that same path implies the initialization happened first
+
+   The checker does not distinguish:
+   - true aggregate-denominator variables (`norm_fac += ...`)
+   - ordinary temporaries initialized to zero and later assigned non-zero values
+
+   So the checker reports on variables that were never aggregate accumulators.
+
+2. Specific fixes  
+   The most robust fix for this checker, while preserving the intended bug detection, is to track the actual bug pattern rather than “float initialized to zero”.
+
+   Concretely:
+   - Track a variable as an aggregate denominator candidate only when it participates in self-accumulation / self-update, such as:
+     - `x += y`
+     - `x = x + y`
+     - `x = y + x`
+   - Optionally keep support for zero initialization, but only as auxiliary metadata, not sufficient by itself to warn.
+   - Track whether the variable has been guarded against zero via:
+     - `if (x)`
+     - `if (!x)`
+     - `if (x == 0)`, `if (x != 0)`
+     - ternary `x ? ... : ...`
+   - Report only if:
+     - divisor is a tracked aggregate variable
+     - it has seen accumulation
+     - and no zero-guard was observed since that accumulation
+
+   This eliminates the FP on `type34_div`, because it is never accumulated.
+
+3. Edge cases / regressions
+   - Keep detecting the target bug:
+     - `norm_fac` is initialized to zero
+     - later updated by `norm_fac += band->norm_fac`
+     - then used as divisor
+     - no zero-guard before division
+     => still reported.
+   - Fixed code:
+     - `norm_fac = norm_fac ? 1.0f / norm_fac : 0;`
+     `checkBranchCondition` should clear the warning state because this is a zero guard.
+   - Multiple accumulators in one function are handled naturally by region-based state.
+   - Reassignment after accumulation:
+     - if assigned a known non-zero constant, clear aggregate-danger state
+     - if assigned unknown value, conservatively keep it unless clearly not aggregate anymore
+   - API compatibility:
+     - uses Clang-18-compatible checker callbacks and ProgramState maps
+     - does not remove any existing includes
+
+4. Implementation strategy
+   I replaced the single boolean map with two state maps:
+   - `AggregateSeenMap`: variable has been used as an aggregate/self-accumulating denominator candidate
+   - `ZeroGuardedMap`: variable has been explicitly zero-checked
+
+   The checker now:
+   - marks variables only on aggregate/self-update patterns in `checkPreStmt(BinaryOperator)`
+   - clears protection state on subsequent writes in `checkBind`
+   - marks zero guards in `checkBranchCondition`
+   - reports only for floating division by a tracked aggregate variable that is not guarded
+
+Refined Code:
+```cpp
+```
+
+If you want, I can also provide a second refinement that makes the checker even more path-sensitive by tracking “guarded on this path only after the last accumulation” more precisely with a small enum state instead of two booleans.

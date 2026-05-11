@@ -1,0 +1,54 @@
+Refinment Plan:
+1. Root cause of the false positive
+   - The checker currently tracks any local floating-point variable initialized to `0` as a potential aggregate denominator.
+   - It then reports on any floating-point division using that variable unless the variable was overwritten with a provably nonzero constant or appeared in a simple zero-check branch.
+   - This is too broad. In the false-positive case, `sum_den` is initialized to zero and later updated by `sum_den += den;`, but the analyzer path reaches the division through the infeasible/irrelevant path where the loop over `k` executes zero iterations. Because the checker has no notion of:
+     - “this variable is an aggregate built by repeated accumulation”, and
+     - “this division is only the target bug pattern when the denominator is inverted or used as a normalization factor after such accumulation”
+     it reports on a much wider class of code than intended.
+   - In other words, the checker is pattern-insensitive and state-insensitive regarding accumulation semantics.
+
+2. Specific fixes
+   - Narrow the checker to the intended bug pattern:
+     - Track only floating variables that are initialized to zero and then updated through self-accumulation, e.g. `x += ...` or `x = x + ...`.
+     - Report only when such a tracked aggregate is used as the denominator in either:
+       - a direct inversion of the form `1.0 / x`, or
+       - optionally, a division that strongly resembles normalization logic.
+   - To eliminate this specific false positive while preserving the target bug:
+     - Require the numerator to be the constant `1`/`1.0` for reporting.
+     - This still catches the target buggy code `norm_fac = 1.0f / norm_fac;`.
+     - It suppresses the BM3D case `sum_num / sum_den`.
+   - Improve state tracking:
+     - Use a proper program-state map from region to a small enum describing the tracked aggregate status instead of a bare boolean.
+     - Keep a “guarded” bit so that after seeing a branch condition checking the variable against zero, we suppress the report.
+   - Make branch handling path-aware:
+     - When the denominator variable appears in a zero-related condition (`x`, `x != 0`, `x == 0`, etc.), remove or downgrade the tracked state. This is conservative but effective and compatible with the target patch style.
+   - Handle reassignment:
+     - If a tracked variable is assigned a non-self expression, stop tracking it as the aggregate of interest.
+
+3. Edge cases / regressions considered
+   - True positive retained:
+     - `float norm_fac = 0.0f; ... norm_fac += band->norm_fac; ... norm_fac = 1.0f / norm_fac;`
+       still reports.
+   - Fixed version suppressed:
+     - `norm_fac = norm_fac ? 1.0f / norm_fac : 0;`
+       branch condition removes tracked state before division is visited.
+   - False positive removed:
+     - `sum_den = 0.f; ... sum_den += den; ... sum_num / sum_den;`
+       no report because numerator is not literal `1`.
+   - Reassignment:
+     - `x = foo(); 1.0/x;` after starting from zero no longer reports unless we have seen accumulation semantics.
+   - Other possible normalization spellings:
+     - `x = x + y` is tracked in addition to `x += y`.
+   - We avoid overfitting to variable names like `norm_fac`; semantics come from initialization + accumulation + inversion.
+   - We do not remove any existing includes.
+
+4. Clang-18 compatibility
+   - Uses existing checker callbacks already present in the original checker.
+   - Uses `REGISTER_MAP_WITH_PROGRAMSTATE`.
+   - Avoids newer API assumptions.
+   - Stays within `CheckerContext`, `ProgramStateRef`, `MemRegion`, `BinaryOperator`, and `PathSensitiveBugReport` interfaces available in Clang 18.
+
+Refined Code:
+```cpp
+```
